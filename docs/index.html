@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>哈大盤中印象派監控</title>
+    <style>
+        :root { --bg: #0f172a; --card: #1e293b; --accent: #38bdf8; --text: #f1f5f9; --up: #ef4444; }
+        body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin-top: 20px; }
+        .card { background: var(--card); border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border-top: 4px solid var(--accent); }
+        .card h2 { margin: 0; color: var(--accent); font-size: 1.5rem; }
+        .row { display: flex; justify-content: space-between; margin: 10px 0; border-bottom: 1px solid #334155; padding-bottom: 5px; }
+        .tag { background: #0ea5e9; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; }
+        .gain { color: var(--up); font-size: 1.4rem; font-weight: bold; }
+        .update-time { color: #94a3b8; font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>盤中關鍵印象派選股</h1>
+        <div class="update-time" id="ts">Loading...</div>
+    </div>
+    <div class="grid" id="container"></div>
+
+    <script>
+        fetch('data.json').then(r => r.json()).then(data => {
+            document.getElementById('ts').innerText = "最後更新時間：" + data.last_update;
+            const container = document.getElementById('container');
+            if(data.stocks.length === 0) {
+                container.innerHTML = "<h3>目前暫無符合條件之標的</h3>";
+                return;
+            }
+            data.stocks.forEach(s => {
+                container.innerHTML += `
+                <div class="card">
+                    <h2>${s.代碼} ${s.名稱} <span class="tag">${s.期間}</span></h2>
+                    <div class="row"><span>最新價格</span><span>${s.最新價格}</span></div>
+                    <div class="row"><span>當日成交量</span><span>${s.當日成交量} 張</span></div>
+                    <div class="row"><span>觀察邏輯</span><span>${s.漲跌幅.includes('高/開') ? 'T日強勢' : '隔日衝型'}</span></div>
+                    <div class="row"><span>漲幅</span><span class="gain">${s.漲跌幅}</span></div>
+                </div>`;
+            });
+        });
+    </script>
+</body>
+</html>
