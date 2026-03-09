@@ -1,5 +1,5 @@
 {
-    "last_update": "2026-03-09 02:31:39",
+    "last_update": "2026-03-09 23:31:50",
     "history": [
         {
             "time": "02:31",
@@ -9542,6 +9542,14 @@
                     "ATR": "2.15"
                 }
             ],
+            "secondary_list": []
+        },
+        {
+            "time": "23:31",
+            "date": "2026-03-09",
+            "primary_count": 0,
+            "secondary_count": 0,
+            "primary_list": [],
             "secondary_list": []
         }
     ],
