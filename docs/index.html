@@ -3,149 +3,136 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IKE 盤中監控儀表板</title>
+    <title>IKE 盤中監控系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        :root { --bg: #0f172a; --card: #1e293b; --accent: #38bdf8; --text: #f1f5f9; --up: #ef4444; }
-        body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; padding: 20px; }
-        .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1px solid #334155; padding-bottom: 15px; flex-wrap: wrap; gap: 15px; }
-        .controls { display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap; }
-        .btn { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--accent); background: transparent; color: var(--text); cursor: pointer; transition: 0.3s; }
-        .btn.active { background: var(--accent); color: var(--bg); font-weight: bold; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px; margin-top: 20px; }
-        .card { background: var(--card); border-radius: 12px; padding: 15px; border-top: 4px solid var(--accent); position: relative; }
-        .row { display: flex; justify-content: space-between; margin: 8px 0; border-bottom: 1px solid #334155; padding-bottom: 5px; font-size: 0.9rem; }
-        .chart-box { height: 250px; margin-top: 10px; border-radius: 8px; overflow: hidden; background: #000; }
-        .gain-val { color: var(--up); font-weight: bold; font-size: 1.1rem; }
-        .debug-btn { border-color: #f59e0b; color: #f59e0b; font-size: 0.8rem; }
-        select { padding: 5px 10px; border-radius: 4px; background: #1e293b; color: white; border: 1px solid var(--accent); }
+        body { background-color: #0d1117; color: #c9d1d9; font-family: "微軟正黑體", sans-serif; }
+        .btn-blue { background-color: #1f6feb; border: 1px solid #388bfd; }
+        .btn-cyan { background-color: #0891b2; border: 1px solid #22d3ee; }
+        .btn-dark { background-color: #161b22; border: 1px solid #30363d; }
+        .btn-debug { background-color: #9a6700; border: 1px solid #d29922; color: #f0e042; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; table-layout: fixed; }
+        th { background-color: #161b22; padding: 12px; border: 1px solid #30363d; font-size: 14px; }
+        td { padding: 10px; border: 1px solid #30363d; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .row-even { background-color: #11161d; } /* 斑馬紋 */
+        
+        /* 欄位寬度權重優化 */
+        .col-code { width: 70px; }
+        .col-name { width: 100px; }
+        .col-broker { width: 200px; } /* 寬大戶欄位 */
+        
+        /* 乖離率顏色邏輯 */
+        .bias-green { color: #3fb950; font-weight: bold; }  /* <= 3% */
+        .bias-orange { color: #d29922; font-weight: bold; } /* 3-10% */
+        .bias-red { color: #f85149; font-weight: bold; }    /* > 10% */
     </style>
 </head>
-<body>
-    <div class="header">
-        <h1>IKE 盤中監控系統</h1>
-        <div style="text-align: right;">
-            <select id="time-selector" style="margin-bottom: 5px;"></select>
-            <div id="ts" style="font-size: 0.8rem; color: #94a3b8;">最後更新：載入中...</div>
+<body class="p-6">
+
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold">IKE 盤中監控系統</h1>
+        <div class="flex items-center gap-4">
+            <select class="btn-dark p-2 rounded text-sm"><option>即時報告</option></select>
+            <span class="text-xs text-gray-500" id="update-time">最後更新：----/--/-- --:--:--</span>
         </div>
     </div>
 
-    <div class="controls">
-        <button class="btn active" onclick="switchTab('secondary', this)">二次篩選 (印象派)</button>
-        <button class="btn" onclick="switchTab('primary', this)">一次篩選 (過中軌)</button>
-        <div style="flex-grow: 1;"></div>
-        <button class="btn" onclick="sortData('vol')">按成交量排序</button>
-        <button class="btn" onclick="sortData('gain')">按漲幅排序</button>
-        <button class="btn debug-btn" onclick="debugForceRender()">DEBUG 強制顯示</button>
+    <div class="flex flex-wrap gap-3 mb-8">
+        <button onclick="filterByBias(3)" class="btn-cyan px-4 py-2 rounded-md text-sm">買點篩選 (<=3%)</button>
+        <button onclick="filterByNet(1000)" class="btn-blue px-4 py-2 rounded-md text-sm">主力重倉 (>1000張)</button>
+        <div class="flex-grow"></div>
+        <button onclick="debugForceShow()" class="btn-debug px-4 py-2 rounded-md text-sm">DEBUG 強制顯示</button>
     </div>
 
-    <div class="grid" id="container"></div>
+    <div id="status-message" class="text-center py-20 text-gray-400">
+        目前此時段無符合標的
+        <p class="text-xs mt-2">請確認 docs/data.json 是否已產出並上傳至 GitHub。</p>
+    </div>
+
+    <table id="data-table" class="hidden">
+        <thead>
+            <tr>
+                <th class="col-code">代碼</th>
+                <th class="col-name">名稱</th>
+                <th class="col-broker">大戶分點</th>
+                <th>買超(張)</th>
+                <th>區間均價</th>
+                <th>現價</th>
+                <th>乖離率</th>
+            </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+    </table>
 
     <script>
-        let currentDisplayList = [];
-        let currentTab = 'secondary';
-        let globalHistory = [];
+        let allData = [];
 
-        function renderStocks(stocks) {
-            const container = document.getElementById('container');
-            container.innerHTML = "";
-            
-            if (!stocks || stocks.length === 0) {
-                container.innerHTML = `
-                    <div style="grid-column: 1/-1; text-align: center; margin-top: 50px;">
-                        <h3 style="color: #94a3b8;">目前此時段無符合標的</h3>
-                        <p style="color: #64748b;">若為本地開啟，請點擊「DEBUG 強制顯示」測試，或上傳至 GitHub 查看。</p>
-                    </div>`;
+        // 🌟 1. 抓取更正後的路徑
+        async function loadData() {
+            try {
+                // 更正路徑為 ./docs/data.json
+                const res = await fetch('./docs/data.json');
+                if (!res.ok) throw new Error('找不到 docs/data.json');
+                allData = await res.json();
+                document.getElementById('update-time').innerText = `最後更新：${new Date().toLocaleString()}`;
+            } catch (err) {
+                console.error("讀取失敗:", err);
+                document.getElementById('status-message').innerHTML += `<br><span class="text-red-500">錯誤: ${err.message}</span>`;
+            }
+        }
+
+        // 🌟 2. 渲染邏輯 (含顏色與斑馬紋)
+        function renderTable(dataList) {
+            const table = document.getElementById('data-table');
+            const body = document.getElementById('table-body');
+            const msg = document.getElementById('status-message');
+
+            if (!dataList || dataList.length === 0) {
+                table.classList.add('hidden');
+                msg.classList.remove('hidden');
                 return;
             }
 
-            stocks.forEach(s => {
-                const gainText = s.漲跌幅百分比 || s.漲跌幅 || "0%";
-                const volText = s.成交量 || s.當日成交量 || "0";
-                
-                container.innerHTML += `
-                <div class="card">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <h2 style="margin:0;">${s.代碼} ${s.名稱}</h2>
-                        <span class="gain-val">${gainText}</span>
-                    </div>
-                    <div class="row"><span>最新價</span><span>${s.最新價格}</span></div>
-                    <div class="row"><span>成交量</span><span>${volText} 張</span></div>
-                    <div class="row"><span>布林狀態</span><span>${s.布林通道狀態 || '分析中'}</span></div>
-                    <div class="chart-box">
-                        <iframe src="https://s.tradingview.com/widgetembed/?symbol=TWSE%3A${s.代碼}&interval=D&theme=dark&style=1&timezone=Asia/Taipei&studies=BollingerBands%40tv-basicstudies" width="100%" height="100%" frameborder="0"></iframe>
-                    </div>
-                </div>`;
+            msg.classList.add('hidden');
+            table.classList.remove('hidden');
+            body.innerHTML = '';
+
+            dataList.forEach((item, index) => {
+                const biasNum = parseFloat(item.乖離率) || 0;
+                let biasClass = 'bias-green';
+                if (biasNum > 10) biasClass = 'bias-red';
+                else if (biasNum > 3) biasClass = 'bias-orange';
+
+                const row = `
+                    <tr class="${index % 2 === 0 ? 'row-even' : ''}">
+                        <td class="col-code">${item.代碼}</td>
+                        <td class="col-name text-cyan-400 font-bold">${item.名稱}</td>
+                        <td class="col-broker text-left text-xs">${item.大戶 || item.大戶名稱}</td>
+                        <td>${item.淨超 || item.買進張數 || 0}</td>
+                        <td>${item.均價 || '--'}</td>
+                        <td class="font-mono text-yellow-500">${item.現價 || 0}</td>
+                        <td class="${biasClass}">${item.乖離率 || '0%'}</td>
+                    </tr>
+                `;
+                body.innerHTML += row;
             });
         }
 
-        // --- 除錯功能：直接使用寫死的資料來繞過 Fetch 失敗 ---
-        function debugForceRender() {
-            alert("正在執行 DEBUG 強制渲染模式...");
-            const mockData = [
-                {"代碼":"6233","名稱":"旺玖 (DEBUG)","最新價格":"26.80","成交量":"357","漲跌幅百分比":"7.41%","布林通道狀態":"起漲時刻"},
-                {"代碼":"6230","名稱":"尼得科超眾 (DEBUG)","最新價格":"182.50","成交量":"1,631","漲跌幅百分比":"46.59%","布林通道狀態":"起漲時刻"},
-                {"代碼":"2330","名稱":"台積電 (測試)","最新價格":"1000","成交量":"50,000","漲跌幅百分比":"2.5%","布林通道狀態":"飆股格局"}
-            ];
-            currentDisplayList = mockData;
-            renderStocks(mockData);
+        function filterByBias(limit) {
+            const filtered = allData.filter(d => parseFloat(d.乖離率) <= limit);
+            renderTable(filtered);
         }
 
-        function switchTab(type, btn) {
-            currentTab = type;
-            document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            updateDisplay();
+        function filterByNet(limit) {
+            const filtered = allData.filter(d => (d.淨超 || d.買進張數) > limit);
+            renderTable(filtered);
         }
 
-        function sortData(mode) {
-            if (mode === 'vol') {
-                currentDisplayList.sort((a, b) => {
-                    const volA = parseFloat(String(a.成交量 || a.當日成交量 || "0").replace(/,/g, ''));
-                    const volB = parseFloat(String(b.成交量 || b.當日成交量 || "0").replace(/,/g, ''));
-                    return volB - volA;
-                });
-            } else {
-                currentDisplayList.sort((a, b) => {
-                    const gainA = parseFloat(String(a.漲跌幅百分比 || a.漲跌幅 || "0").replace(/%/g, ''));
-                    const gainB = parseFloat(String(b.漲跌幅百分比 || b.漲跌幅 || "0").replace(/%/g, ''));
-                    return gainB - gainA;
-                });
-            }
-            renderStocks(currentDisplayList);
+        function debugForceShow() {
+            renderTable(allData);
         }
 
-        function updateDisplay() {
-            const selector = document.getElementById('time-selector');
-            if (!globalHistory || globalHistory.length === 0 || !globalHistory[selector.value]) return;
-            
-            const record = globalHistory[selector.value];
-            currentDisplayList = (currentTab === 'primary') ? (record.primary_list || []) : (record.secondary_list || []);
-            renderStocks(currentDisplayList);
-        }
-
-        fetch('data.json')
-            .then(r => r.json())
-            .then(data => {
-                document.getElementById('ts').innerText = "最後更新：" + data.last_update;
-                globalHistory = data.history || [];
-                
-                const selector = document.getElementById('time-selector');
-                selector.innerHTML = "";
-                globalHistory.forEach((r, i) => {
-                    const opt = document.createElement('option');
-                    opt.value = i;
-                    opt.text = (r.time || "未知") + " 報告";
-                    if(i === globalHistory.length-1) opt.selected = true;
-                    selector.appendChild(opt);
-                });
-                
-                updateDisplay();
-                selector.onchange = updateDisplay;
-            })
-            .catch(err => {
-                document.getElementById('ts').innerText = "錯誤：無法讀取資料 (Failed to fetch)";
-                console.error(err);
-            });
+        window.onload = loadData;
     </script>
 </body>
 </html>
