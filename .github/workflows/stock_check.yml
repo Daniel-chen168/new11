@@ -1,0 +1,41 @@
+name: IKE_TOOL Scheduled Analysis
+
+on:
+  schedule:
+    # 處理 09:30, 10:30, 11:30, 12:30 (週一至週五)
+    - cron: '30 1,2,3,4 * * 1-5'
+    # 處理 13:00 (週一至週五)
+    - cron: '0 5 * * 1-5'
+  
+  workflow_dispatch: # 保留手動觸發按鈕，方便測試
+
+jobs:
+  run-analysis:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 允許 Action 回寫資料到你的 Repo
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+          # 如果你有用到 shioaji 或其他套件，請確保在 requirements.txt 中
+
+      - name: Run IKE_TOOL
+        run: python main.py # 確保你的程式會產生或更新 data.json
+
+      - name: Commit and Push data.json
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add data.json
+          # 只有當檔案有變動時才 commit，避免報錯
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update data.json: $(date +'%Y-%m-%d %H:%M:%S')" && git push)
