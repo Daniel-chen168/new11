@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IKE 盤中監控系統</title>
+    <title>IKE 盤中監控系統 (布林策略版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #0d1117; color: #c9d1d9; font-family: "微軟正黑體", sans-serif; }
@@ -11,127 +11,157 @@
         .btn-cyan { background-color: #0891b2; border: 1px solid #22d3ee; }
         .btn-dark { background-color: #161b22; border: 1px solid #30363d; }
         .btn-debug { background-color: #9a6700; border: 1px solid #d29922; color: #f0e042; }
+        
         table { border-collapse: collapse; width: 100%; margin-top: 20px; table-layout: fixed; }
         th { background-color: #161b22; padding: 12px; border: 1px solid #30363d; font-size: 14px; }
-        td { padding: 10px; border: 1px solid #30363d; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .row-even { background-color: #11161d; } /* 斑馬紋 */
+        td { padding: 12px; border: 1px solid #30363d; text-align: center; font-size: 15px; }
+        .row-even { background-color: #11161d; }
         
-        /* 欄位寬度權重優化 */
-        .col-code { width: 70px; }
+        .col-code { width: 75px; }
         .col-name { width: 100px; }
-        .col-broker { width: 200px; } /* 寬大戶欄位 */
+        .col-status { width: 120px; }
         
-        /* 乖離率顏色邏輯 */
-        .bias-green { color: #3fb950; font-weight: bold; }  /* <= 3% */
-        .bias-orange { color: #d29922; font-weight: bold; } /* 3-10% */
-        .bias-red { color: #f85149; font-weight: bold; }    /* > 10% */
+        /* 漲跌幅顏色邏輯：紅漲、綠跌、橘平盤 */
+        .text-up { color: #f85149; font-weight: bold; }
+        .text-down { color: #3fb950; font-weight: bold; }
+        .text-flat { color: #d29922; font-weight: bold; }
     </style>
 </head>
 <body class="p-6">
 
     <div class="flex justify-between items-center mb-6">
-        <h1 class="text-3xl font-bold">IKE 盤中監控系統</h1>
+        <h1 class="text-3xl font-bold">IKE 盤中監控系統 <span class="text-sm text-cyan-400">布林通道版</span></h1>
         <div class="flex items-center gap-4">
-            <select class="btn-dark p-2 rounded text-sm"><option>即時報告</option></select>
-            <span class="text-xs text-gray-500" id="update-time">最後更新：----/--/-- --:--:--</span>
+            <select class="btn-dark p-2 rounded text-sm" id="report-select">
+                <option>自動解析報告</option>
+            </select>
+            <span class="text-xs text-gray-400" id="update-time">最後更新：讀取中...</span>
         </div>
     </div>
 
     <div class="flex flex-wrap gap-3 mb-8">
-        <button onclick="filterByBias(3)" class="btn-cyan px-4 py-2 rounded-md text-sm">買點篩選 (<=3%)</button>
-        <button onclick="filterByNet(1000)" class="btn-blue px-4 py-2 rounded-md text-sm">主力重倉 (>1000張)</button>
+        <button onclick="filterByStatus('起漲時刻')" class="btn-cyan px-4 py-2 rounded-md text-sm">篩選：起漲時刻</button>
+        <button onclick="filterByStatus('盤整')" class="btn-dark px-4 py-2 rounded-md text-sm">篩選：盤整</button>
         <div class="flex-grow"></div>
-        <button onclick="debugForceShow()" class="btn-debug px-4 py-2 rounded-md text-sm">DEBUG 強制顯示</button>
+        <button onclick="debugForceShow()" class="btn-debug px-4 py-2 rounded-md text-sm">顯示全部 (重置)</button>
     </div>
 
-    <div id="status-message" class="text-center py-20 text-gray-400">
-        目前此時段無符合標的
-        <p class="text-xs mt-2">請確認 docs/data.json 是否已產出並上傳至 GitHub。</p>
+    <div id="status-message" class="text-center py-10 text-gray-400 hidden">
+        <span id="msg-text">目前此時段無符合標的</span>
+        <p class="text-xs mt-2">請確認 data.json 是否已正確上傳。</p>
     </div>
 
-    <table id="data-table" class="hidden">
+    <table id="data-table">
         <thead>
             <tr>
                 <th class="col-code">代碼</th>
                 <th class="col-name">名稱</th>
-                <th class="col-broker">大戶分點</th>
-                <th>買超(張)</th>
-                <th>區間均價</th>
-                <th>現價</th>
-                <th>乖離率</th>
+                <th>產業類別</th>
+                <th>觀察價</th>
+                <th>最新價</th>
+                <th>漲跌幅</th>
+                <th>成交量</th>
+                <th class="col-status">布林狀態</th>
             </tr>
         </thead>
-        <tbody id="table-body"></tbody>
+        <tbody id="table-body">
+            </tbody>
     </table>
 
     <script>
         let allData = [];
 
-        // 🌟 1. 抓取更正後的路徑
+        // 🌟 1. 載入資料 (路徑已修正為 ./data.json)
         async function loadData() {
             try {
-                // 更正路徑為 ./docs/data.json
-                const res = await fetch('./docs/data.json');
-                if (!res.ok) throw new Error('找不到 docs/data.json');
-                allData = await res.json();
-                document.getElementById('update-time').innerText = `最後更新：${new Date().toLocaleString()}`;
+                // 如果你的 GitHub Pages 根目錄設定在 docs/，這裡只能寫 ./data.json
+                const res = await fetch('./data.json'); 
+                if (!res.ok) throw new Error('找不到 data.json 檔案');
+                
+                const rawJson = await res.json();
+                
+                // 更新時間 (抓取 JSON 最外層的 last_update)
+                const updateTime = rawJson.last_update || "未知";
+                document.getElementById('update-time').innerText = `系統更新時間：${updateTime}`;
+                
+                // 🌟 解析新的巢狀 JSON 結構
+                if (rawJson.history && rawJson.history.length > 0 && rawJson.history[0].primary_list) {
+                    allData = rawJson.history[0].primary_list;
+                } else {
+                    allData = [];
+                }
+                
+                // 自動顯示所有數據
+                debugForceShow();
+
             } catch (err) {
-                console.error("讀取失敗:", err);
-                document.getElementById('status-message').innerHTML += `<br><span class="text-red-500">錯誤: ${err.message}</span>`;
+                console.error("載入失敗:", err);
+                document.getElementById('update-time').innerText = "連線失敗";
+                const msgBox = document.getElementById('status-message');
+                msgBox.classList.remove('hidden');
+                document.getElementById('msg-text').innerHTML = `<span class="text-red-500">無法載入資料，錯誤：${err.message}</span>`;
             }
         }
 
-        // 🌟 2. 渲染邏輯 (含顏色與斑馬紋)
-        function renderTable(dataList) {
-            const table = document.getElementById('data-table');
-            const body = document.getElementById('table-body');
-            const msg = document.getElementById('status-message');
+        // 🌟 2. 渲染表格資料
+        function renderTable(dataList, isFiltered = false) {
+            const tableBody = document.getElementById('table-body');
+            const msgBox = document.getElementById('status-message');
 
             if (!dataList || dataList.length === 0) {
-                table.classList.add('hidden');
-                msg.classList.remove('hidden');
+                if (isFiltered) {
+                    msgBox.classList.remove('hidden');
+                    document.getElementById('msg-text').innerText = "目前時段無符合此篩選條件的標的。";
+                    renderTable(allData, false); // 自動跳回顯示全部
+                } else {
+                    msgBox.classList.remove('hidden');
+                }
                 return;
             }
 
-            msg.classList.add('hidden');
-            table.classList.remove('hidden');
-            body.innerHTML = '';
+            msgBox.classList.add('hidden');
+            tableBody.innerHTML = '';
 
             dataList.forEach((item, index) => {
-                const biasNum = parseFloat(item.乖離率) || 0;
-                let biasClass = 'bias-green';
-                if (biasNum > 10) biasClass = 'bias-red';
-                else if (biasNum > 3) biasClass = 'bias-orange';
+                // 處理漲跌幅的顏色判定
+                const pctStr = item.漲跌幅百分比 || "0%";
+                const pctNum = parseFloat(pctStr.replace('%', ''));
+                let pctClass = 'text-flat';
+                if (pctNum > 0) pctClass = 'text-up';
+                else if (pctNum < 0) pctClass = 'text-down';
+
+                // 處理布林通道狀態的文字顏色
+                const statusStr = item.布林通道狀態 || "--";
+                const statusColor = statusStr.includes('起漲') ? 'text-cyan-400 font-bold' : 'text-gray-400';
 
                 const row = `
                     <tr class="${index % 2 === 0 ? 'row-even' : ''}">
-                        <td class="col-code">${item.代碼}</td>
-                        <td class="col-name text-cyan-400 font-bold">${item.名稱}</td>
-                        <td class="col-broker text-left text-xs">${item.大戶 || item.大戶名稱}</td>
-                        <td>${item.淨超 || item.買進張數 || 0}</td>
-                        <td>${item.均價 || '--'}</td>
-                        <td class="font-mono text-yellow-500">${item.現價 || 0}</td>
-                        <td class="${biasClass}">${item.乖離率 || '0%'}</td>
+                        <td class="col-code font-mono">${item.代碼 || '--'}</td>
+                        <td class="col-name text-blue-300 font-bold">${item.名稱 || '--'}</td>
+                        <td class="text-sm text-gray-400">${item.類別 || '--'}</td>
+                        <td class="text-gray-300">${item.觀察點價格 || '--'}</td>
+                        <td class="font-mono text-yellow-500">${item.最新價格 || '--'}</td>
+                        <td class="${pctClass}">${item.漲跌幅百分比 || '--'}</td>
+                        <td class="text-gray-300">${item.成交量 || '--'}</td>
+                        <td class="${statusColor}">${statusStr}</td>
                     </tr>
                 `;
-                body.innerHTML += row;
+                tableBody.innerHTML += row;
             });
         }
 
-        function filterByBias(limit) {
-            const filtered = allData.filter(d => parseFloat(d.乖離率) <= limit);
-            renderTable(filtered);
+        // 🌟 3. 篩選邏輯 (根據 布林通道狀態 篩選)
+        function filterByStatus(statusName) {
+            const filtered = allData.filter(d => d.布林通道狀態 && d.布林通道狀態.includes(statusName));
+            renderTable(filtered, true);
         }
 
-        function filterByNet(limit) {
-            const filtered = allData.filter(d => (d.淨超 || d.買進張數) > limit);
-            renderTable(filtered);
-        }
-
+        // 顯示全部
         function debugForceShow() {
             renderTable(allData);
         }
 
+        // 網頁載入後自動執行
         window.onload = loadData;
     </script>
 </body>
