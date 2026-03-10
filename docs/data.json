@@ -9541,27 +9541,8 @@
                 }
             ],
             "secondary_list": []
-<<<<<<< HEAD
-=======
-        },
-        {
-            "time": "23:31",
-            "date": "2026-03-09",
-            "primary_count": 0,
-            "secondary_count": 0,
-            "primary_list": [],
-            "secondary_list": []
-        },
-        {
-            "time": "23:38",
-            "date": "2026-03-09",
-            "primary_count": 0,
-            "secondary_count": 0,
-            "primary_list": [],
-            "secondary_list": []
->>>>>>> d395f0b6a6106c6b794e6228bdfd2022e7f509ee
-        }
-    ],
+
     "recommendations": []
 
 }
+
