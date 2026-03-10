@@ -365,7 +365,7 @@ class DataDownloader:
         logging.info(f"開始所有股票原始數據下載 (下載起始日期: {download_start_date_for_fetch}, 強制更新: {final_force_refresh})。")
         processed_fetch_count = 0 
 
-        max_workers_download = 40 
+        max_workers_download = 5
         logging.debug(f"網路下載執行緒池最大工作者數量: {max_workers_download}")
 
         start_fetch_time = time.time()
@@ -413,3 +413,4 @@ class DataDownloader:
             self._save_download_status(today_date_str, False)
 
         return final_status
+
