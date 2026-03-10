@@ -9539,10 +9539,25 @@
                     "標準差": "2.2",
                     "ATR": "2.15"
                 }
-            ],
-            "secondary_list": []
-
-    "recommendations": []
-
+          ],
+        "secondary_list": []
+    },
+    {
+        "time": "23:31",
+        "date": "2026-03-09",
+        "primary_count": 0,
+        "secondary_count": 0,
+        "primary_list": [],
+        "secondary_list": []
+    },
+    {
+        "time": "23:38",
+        "date": "2026-03-09",
+        "primary_count": 0,
+        "secondary_count": 0,
+        "primary_list": [],
+        "secondary_list": []
+    }
+  ],
+  "recommendations": []
 }
-
