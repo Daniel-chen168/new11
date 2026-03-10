@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IKE 盤中監控系統 (布林策略版)</title>
+    <title>IKE 盤中監控系統 (布林策略診斷版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #0d1117; color: #c9d1d9; font-family: "微軟正黑體", sans-serif; }
@@ -21,10 +21,12 @@
         .col-name { width: 100px; }
         .col-status { width: 120px; }
         
-        /* 漲跌幅顏色邏輯：紅漲、綠跌、橘平盤 */
         .text-up { color: #f85149; font-weight: bold; }
         .text-down { color: #3fb950; font-weight: bold; }
         .text-flat { color: #d29922; font-weight: bold; }
+        
+        /* 偵錯面板專用樣式 */
+        #debug-panel { background-color: #2d1114; border: 1px solid #f85149; padding: 15px; margin-top: 20px; border-radius: 8px; font-family: monospace; }
     </style>
 </head>
 <body class="p-6">
@@ -32,9 +34,7 @@
     <div class="flex justify-between items-center mb-6">
         <h1 class="text-3xl font-bold">IKE 盤中監控系統 <span class="text-sm text-cyan-400">布林通道版</span></h1>
         <div class="flex items-center gap-4">
-            <select class="btn-dark p-2 rounded text-sm" id="report-select">
-                <option>自動解析報告</option>
-            </select>
+            <select class="btn-dark p-2 rounded text-sm"><option>自動解析報告</option></select>
             <span class="text-xs text-gray-400" id="update-time">最後更新：讀取中...</span>
         </div>
     </div>
@@ -47,8 +47,16 @@
     </div>
 
     <div id="status-message" class="text-center py-10 text-gray-400 hidden">
-        <span id="msg-text">目前此時段無符合標的</span>
-        <p class="text-xs mt-2">請確認 data.json 是否已正確上傳。</p>
+        <span id="msg-text" class="text-xl">目前此時段無符合標的</span>
+        
+        <div id="debug-panel" class="hidden text-left mt-6 text-sm">
+            <h3 class="text-red-400 font-bold mb-2">🚨 載入錯誤偵錯報告</h3>
+            <p><strong>1. 當前網頁網址：</strong> <span id="dbg-current-url" class="text-blue-300"></span></p>
+            <p><strong>2. 實際請求路徑：</strong> <span id="dbg-target-url" class="text-yellow-300"></span></p>
+            <p><strong>3. HTTP 狀態碼：</strong> <span id="dbg-status" class="text-gray-300"></span></p>
+            <p class="mt-2 text-gray-400"><strong>4. 抓到的檔案內容預覽 (前 150 字元)：</strong></p>
+            <div id="dbg-content" class="bg-black p-2 mt-1 rounded text-gray-300 overflow-hidden whitespace-pre-wrap"></div>
+        </div>
     </div>
 
     <table id="data-table">
@@ -64,73 +72,116 @@
                 <th class="col-status">布林狀態</th>
             </tr>
         </thead>
-        <tbody id="table-body">
-            </tbody>
+        <tbody id="table-body"></tbody>
     </table>
 
     <script>
         let allData = [];
 
-        // 🌟 1. 載入資料 (路徑已修正為 ./data.json)
         async function loadData() {
+            // 設定我們要抓取的相對路徑
+            const targetPath = './data.json';
+            
+            // 埋入 Log：將相對路徑轉換為絕對路徑，方便觀察
+            const currentUrl = window.location.href;
+            const absoluteTargetUrl = new URL(targetPath, currentUrl).href;
+            
+            console.log("=== IKE Debug Logs ===");
+            console.log("目前網頁:", currentUrl);
+            console.log("嘗試抓取:", absoluteTargetUrl);
+
             try {
-                // 如果你的 GitHub Pages 根目錄設定在 docs/，這裡只能寫 ./data.json
-                const res = await fetch('./data.json'); 
-                if (!res.ok) throw new Error('找不到 data.json 檔案');
+                // 1. 發送請求
+                const res = await fetch(targetPath);
                 
-                const rawJson = await res.json();
+                // 如果 HTTP 狀態碼不是 200 (例如 404)，手動拋出錯誤以觸發 Catch
+                if (!res.ok) {
+                    throw new Error(`HTTP 錯誤碼 ${res.status} (${res.statusText})`);
+                }
+
+                // 2. 🌟 關鍵修改：先用「純文字」讀取，不要直接轉 JSON
+                // 這樣如果裡面有 Git 衝突標記 (<<<<<<< HEAD) 或是抓到 HTML 網頁，我們才能印出來看
+                const rawText = await res.text();
                 
-                // 更新時間 (抓取 JSON 最外層的 last_update)
+                // 3. 嘗試將純文字轉為 JSON
+                let rawJson;
+                try {
+                    rawJson = JSON.parse(rawText);
+                } catch (parseError) {
+                    // 如果解析失敗，把純文字丟給外層的 catch 顯示在畫面上
+                    throw new Error(`JSON 解析失敗！檔案格式不合法。\n抓到的內容：\n${rawText.substring(0, 150)}...`);
+                }
+                
+                // 成功載入與解析
                 const updateTime = rawJson.last_update || "未知";
                 document.getElementById('update-time').innerText = `系統更新時間：${updateTime}`;
                 
-                // 🌟 解析新的巢狀 JSON 結構
                 if (rawJson.history && rawJson.history.length > 0 && rawJson.history[0].primary_list) {
                     allData = rawJson.history[0].primary_list;
                 } else {
                     allData = [];
                 }
                 
-                // 自動顯示所有數據
                 debugForceShow();
+                console.log("載入成功！資料筆數:", allData.length);
 
             } catch (err) {
-                console.error("載入失敗:", err);
-                document.getElementById('update-time').innerText = "連線失敗";
-                const msgBox = document.getElementById('status-message');
-                msgBox.classList.remove('hidden');
-                document.getElementById('msg-text').innerHTML = `<span class="text-red-500">無法載入資料，錯誤：${err.message}</span>`;
+                console.error("載入或解析失敗:", err);
+                showDebugPanel(currentUrl, absoluteTargetUrl, err.message);
             }
         }
 
-        // 🌟 2. 渲染表格資料
+        // 顯示偵錯面板的函數
+        function showDebugPanel(current, target, errorMsg) {
+            document.getElementById('update-time').innerText = "連線/解析失敗";
+            const msgBox = document.getElementById('status-message');
+            const debugPanel = document.getElementById('debug-panel');
+            
+            msgBox.classList.remove('hidden');
+            document.getElementById('data-table').classList.add('hidden');
+            
+            document.getElementById('msg-text').innerHTML = `<span class="text-red-500">無法讀取資料，請查看下方偵錯報告</span>`;
+            
+            debugPanel.classList.remove('hidden');
+            document.getElementById('dbg-current-url').innerText = current;
+            document.getElementById('dbg-target-url').innerText = target;
+            
+            // 判斷錯誤類型並顯示
+            if (errorMsg.includes('JSON 解析失敗')) {
+                document.getElementById('dbg-status').innerText = "200 OK (檔案找到了，但內容不是標準的 JSON)";
+                document.getElementById('dbg-content').innerText = errorMsg;
+            } else {
+                document.getElementById('dbg-status').innerText = errorMsg;
+                document.getElementById('dbg-content').innerText = "無法取得內容 (可能是 404 找不到檔案，或 CORS 阻擋)";
+            }
+        }
+
         function renderTable(dataList, isFiltered = false) {
             const tableBody = document.getElementById('table-body');
             const msgBox = document.getElementById('status-message');
+            const table = document.getElementById('data-table');
 
             if (!dataList || dataList.length === 0) {
                 if (isFiltered) {
                     msgBox.classList.remove('hidden');
+                    document.getElementById('debug-panel').classList.add('hidden'); // 篩選無結果時隱藏偵錯面板
                     document.getElementById('msg-text').innerText = "目前時段無符合此篩選條件的標的。";
-                    renderTable(allData, false); // 自動跳回顯示全部
-                } else {
-                    msgBox.classList.remove('hidden');
+                    renderTable(allData, false); 
                 }
                 return;
             }
 
             msgBox.classList.add('hidden');
+            table.classList.remove('hidden');
             tableBody.innerHTML = '';
 
             dataList.forEach((item, index) => {
-                // 處理漲跌幅的顏色判定
                 const pctStr = item.漲跌幅百分比 || "0%";
                 const pctNum = parseFloat(pctStr.replace('%', ''));
                 let pctClass = 'text-flat';
                 if (pctNum > 0) pctClass = 'text-up';
                 else if (pctNum < 0) pctClass = 'text-down';
 
-                // 處理布林通道狀態的文字顏色
                 const statusStr = item.布林通道狀態 || "--";
                 const statusColor = statusStr.includes('起漲') ? 'text-cyan-400 font-bold' : 'text-gray-400';
 
@@ -150,18 +201,15 @@
             });
         }
 
-        // 🌟 3. 篩選邏輯 (根據 布林通道狀態 篩選)
         function filterByStatus(statusName) {
             const filtered = allData.filter(d => d.布林通道狀態 && d.布林通道狀態.includes(statusName));
             renderTable(filtered, true);
         }
 
-        // 顯示全部
         function debugForceShow() {
             renderTable(allData);
         }
 
-        // 網頁載入後自動執行
         window.onload = loadData;
     </script>
 </body>
