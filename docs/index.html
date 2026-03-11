@@ -25,7 +25,7 @@
         /* 欄位寬度 */
         .col-code { width: 75px; }
         .col-name { width: 100px; }
-        .col-period { width: 85px; } /* 新增期間欄位寬度 */
+        .col-period { width: 85px; } 
         .col-date { width: 110px; }
         .col-status { width: 120px; }
         
@@ -38,6 +38,10 @@
         .sortable { cursor: pointer; transition: background 0.2s; }
         .sortable:hover { background-color: #21262d; }
         .sort-icon { font-size: 12px; margin-left: 5px; color: #8b949e; }
+        
+        /* 超連結樣式 */
+        .stock-link { text-decoration: none; transition: color 0.2s; display: block; width: 100%; height: 100%; }
+        .stock-link:hover { color: #58a6ff; text-decoration: underline; }
     </style>
 </head>
 <body class="p-6">
@@ -59,7 +63,8 @@
                     <th class="col-code">代碼</th>
                     <th class="col-name">名稱</th>
                     <th>產業類別</th>
-                    <th class="col-period">觸發期間</th> <th class="col-date">觀察日期</th>
+                    <th class="col-period">觸發期間</th>
+                    <th class="col-date">觀察日期</th>
                     <th>觀察價</th>
                     <th>最新價</th>
                     <th>漲跌幅</th>
@@ -134,10 +139,15 @@
             }
         }
 
-        // 🌟 專屬推薦清單的列生成器 (加入三部曲標籤)
+        // 🌟 生成 Yahoo 股市連結
+        function getYahooLink(code) {
+            return `https://tw.stock.yahoo.com/quote/${code}`;
+        }
+
+        // 生成推薦列
         function generateRecommendRows(dataList) {
             return dataList.map((item, index) => {
-                const pctStr = item.漲跌幅百分比 || item.漲跌幅 || "0%"; // 兼容兩種欄位名
+                const pctStr = item.漲跌幅百分比 || item.漲跌幅 || "0%"; 
                 const pctNum = parseFloat(pctStr.replace('%', ''));
                 let pctClass = 'text-flat';
                 if (pctNum > 0) pctClass = 'text-up';
@@ -146,7 +156,6 @@
                 const statusStr = item.布林通道狀態 || "--";
                 const statusColor = statusStr.includes('起漲') || statusStr.includes('飆股') ? 'text-cyan-400 font-bold' : 'text-gray-400';
 
-                // 🌟 三部曲標籤視覺化
                 let periodBadge = '--';
                 if (item.期間 === '當日') {
                     periodBadge = '<span class="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold shadow-md shadow-red-900/50">當日 T</span>';
@@ -158,12 +167,14 @@
                     periodBadge = `<span class="bg-gray-700 text-gray-300 px-2 py-0.5 rounded text-xs">${item.期間}</span>`;
                 }
 
+                // 加入 a 標籤超連結
                 return `
                     <tr class="${index % 2 === 0 ? 'row-even' : ''}">
-                        <td class="col-code font-mono">${item.代碼 || '--'}</td>
-                        <td class="col-name text-blue-300 font-bold">${item.名稱 || '--'}</td>
+                        <td class="col-code font-mono"><a href="${getYahooLink(item.代碼)}" target="_blank" class="stock-link text-blue-400">${item.代碼 || '--'}</a></td>
+                        <td class="col-name text-blue-300 font-bold"><a href="${getYahooLink(item.代碼)}" target="_blank" class="stock-link">${item.名稱 || '--'}</a></td>
                         <td class="text-sm text-gray-400">${item.類別 || '--'}</td>
-                        <td>${periodBadge}</td> <td class="col-date text-sm text-yellow-300">${item.觀察點日期 || '--'}</td>
+                        <td>${periodBadge}</td>
+                        <td class="col-date text-sm text-yellow-300">${item.觀察點日期 || '--'}</td>
                         <td class="text-gray-300">${item.觀察點價格 || '--'}</td>
                         <td class="font-mono text-yellow-500">${item.最新價格 || '--'}</td>
                         <td class="${pctClass}">${pctStr}</td>
@@ -174,7 +185,7 @@
             }).join('');
         }
 
-        // 主雷達的列生成器 (無標籤)
+        // 生成主列
         function generateMainRows(dataList) {
             return dataList.map((item, index) => {
                 const pctStr = item.漲跌幅百分比 || "0%";
@@ -186,10 +197,11 @@
                 const statusStr = item.布林通道狀態 || "--";
                 const statusColor = statusStr.includes('起漲') || statusStr.includes('飆股') ? 'text-cyan-400 font-bold' : 'text-gray-400';
 
+                // 加入 a 標籤超連結
                 return `
                     <tr class="${index % 2 === 0 ? 'row-even' : ''}">
-                        <td class="col-code font-mono">${item.代碼 || '--'}</td>
-                        <td class="col-name text-blue-300 font-bold">${item.名稱 || '--'}</td>
+                        <td class="col-code font-mono"><a href="${getYahooLink(item.代碼)}" target="_blank" class="stock-link text-blue-400">${item.代碼 || '--'}</a></td>
+                        <td class="col-name text-blue-300 font-bold"><a href="${getYahooLink(item.代碼)}" target="_blank" class="stock-link">${item.名稱 || '--'}</a></td>
                         <td class="text-sm text-gray-400">${item.類別 || '--'}</td>
                         <td class="col-date text-sm text-yellow-300">${item.觀察點日期 || '--'}</td>
                         <td class="text-gray-300">${item.觀察點價格 || '--'}</td>
@@ -207,16 +219,11 @@
             const tbody = document.getElementById('recommend-body');
             
             if (recommendData && recommendData.length > 0) {
-                // 🌟 三部曲專屬排序邏輯：優先排天數(當日 > 1日 > 2日)，同天數比成交量
                 recommendData.sort((a, b) => {
                     const periodOrder = { '當日': 1, '1日': 2, '2日': 3 };
                     const orderA = periodOrder[a.期間] || 99;
                     const orderB = periodOrder[b.期間] || 99;
-                    
-                    if (orderA !== orderB) {
-                        return orderA - orderB; // 天數越小 (1) 排越上面
-                    }
-                    // 天數相同時，看 raw_volume 由大到小
+                    if (orderA !== orderB) return orderA - orderB; 
                     return (b.raw_volume || 0) - (a.raw_volume || 0);
                 });
 
