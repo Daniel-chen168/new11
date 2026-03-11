@@ -1,4 +1,4 @@
-# data_downloader.py (相容最新 yfinance 防封鎖版)
+# data_downloader.py (基於原始完美邏輯的防封鎖優化版)
 
 import yfinance as yf
 import pandas as pd
@@ -12,8 +12,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import shutil
 import threading
-import requests
 
+# --- 引入股票代號更新模組 ---
 try:
     from ticker_updater import update_stock_list
     UPDATER_LOADED = True
@@ -22,8 +22,8 @@ except ImportError:
     logging.warning("未能找到 ticker_updater.py，將無法自動更新股票列表。")
 
 DOWNLOAD_STATUS_FILE = "download_status.json"
-DEFAULT_DOWNLOAD_START_DATE = "2024-06-01" 
-MIN_HISTORY_START_DATE = "2024-06-01" 
+DEFAULT_DOWNLOAD_START_DATE = "2025-03-01"
+MIN_HISTORY_START_DATE = "2025-03-01" 
 MIN_HISTORY_START_DATE_DT = datetime.strptime(MIN_HISTORY_START_DATE, "%Y-%m-%d")
 REQUIRED_CACHE_DATA_POINTS = 90
 
@@ -36,15 +36,19 @@ class DataDownloader:
         logging.debug("DataDownloader 初始化完成。")
 
     def _load_download_status(self):
+        logging.debug("進入 _load_download_status")
         if os.path.exists(DOWNLOAD_STATUS_FILE):
             try:
                 with open(DOWNLOAD_STATUS_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    status = json.load(f)
+                    return status
             except Exception as e:
                 logging.error(f"載入下載狀態檔案失敗: {e}")
+                return {"last_full_download_date": None, "is_complete": False}
         return {"last_full_download_date": None, "is_complete": False}
 
     def _save_download_status(self, date_str, is_complete):
+        logging.debug("進入 _save_download_status")
         try:
             status = {"last_full_download_date": date_str, "is_complete": is_complete}
             with open(DOWNLOAD_STATUS_FILE, 'w', encoding='utf-8') as f:
@@ -69,19 +73,16 @@ class DataDownloader:
         for t_candidate in possible_tickers:
             for attempt in range(retries):
                 try:
-                    time.sleep(random.uniform(1.0, 2.5)) 
+                    # 🌟 防封鎖：稍微拉長隨機休息時間
+                    time.sleep(random.uniform(1.0, 3.0))
 
                     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-                    
-                    # 🌟 修正點：移除 session=self.session，讓最新版的 yfinance 自己處理突破封鎖機制
+                    # 🌟 你的完美舊邏輯：自動將傳進來的日期 +1 天
+                    end_dt_exclusive = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+
+                    # 🌟 你的完美舊邏輯：不塞 Session，避免崩潰
                     stock = yf.Ticker(t_candidate)
-
-                    # 終極解法：不設定 end_date，強制抓取到最新的一秒
-                    df = stock.history(start=start_dt, interval=interval)
-
-                    # 雙重保險：如果異常回傳空值，強制抓一年
-                    if df.empty:
-                        df = stock.history(period="1y", interval=interval)
+                    df = stock.history(start=start_dt, end=end_dt_exclusive, interval=interval)
 
                     if df.empty:
                         continue 
@@ -108,23 +109,13 @@ class DataDownloader:
                     return df
 
                 except Exception as e:
-                    error_msg = str(e)
-                    if "404 Not Found" in error_msg or "No data found" in error_msg or "invalid interval" in error_msg:
-                        logging.error(f"下載 {t_candidate} 失敗: 代號無效或已下市。")
+                    if "404 Not Found" in str(e) or "No data found" in str(e) or "invalid interval" in str(e):
                         break
                     
-                    if "Too Many Requests" in error_msg or "Rate limited" in error_msg:
-                        logging.warning(f"⚠️ 遭到 Yahoo 封鎖！休眠 30 秒... (嘗試 {attempt+1}/{retries})")
-                        time.sleep(random.uniform(25.0, 35.0))
-                    elif "subscriptable" in error_msg:
-                        logging.warning(f"⚠️ Yahoo 回傳異常格式。休眠 15 秒... (嘗試 {attempt+1}/{retries})")
-                        time.sleep(random.uniform(10.0, 20.0))
-                    else:
-                        logging.warning(f"下載 {t_candidate} 失敗 (嘗試 {attempt+1}/{retries}): {e}")
-                        if attempt < retries - 1:
-                            time.sleep(3)
-                        else:
-                            logging.error(f"下載 {t_candidate} 最終失敗。")
+                    if "Rate limited" in str(e) or "Too Many Requests" in str(e):
+                        time.sleep(random.uniform(15.0, 25.0)) # 遇到封鎖強制睡久一點
+                    elif attempt < retries - 1:
+                        time.sleep(3)
         return None
 
     def save_df_to_raw_parquet(self, df: pd.DataFrame, ticker: str, interval: str = '1d', overwrite: bool = False) -> str:
@@ -137,10 +128,8 @@ class DataDownloader:
         if overwrite:
             for f_name in os.listdir(interval_data_dir):
                 if f_name.startswith(f"{cleaned_ticker}_") and f_name.endswith(".parquet"):
-                    try:
-                        os.remove(os.path.join(interval_data_dir, f_name))
-                    except Exception:
-                        pass
+                    try: os.remove(os.path.join(interval_data_dir, f_name))
+                    except Exception: pass
 
         if not df.empty:
             start_date_str = df.index.min().strftime("%Y-%m-%d")
@@ -148,8 +137,7 @@ class DataDownloader:
         else:
             taipei_tz = timezone('Asia/Taipei')
             today = datetime.now(taipei_tz).strftime("%Y-%m-%d")
-            start_date_str = today
-            end_date_str = today
+            start_date_str, end_date_str = today, today
 
         parquet_path = os.path.join(interval_data_dir, f"{cleaned_ticker}_{start_date_str}_{end_date_str}.parquet")
         df.to_parquet(parquet_path, index=True, engine='pyarrow')
@@ -174,11 +162,9 @@ class DataDownloader:
                         else:
                             df_temp.index = pd.to_datetime(df_temp.index).tz_localize('Asia/Taipei', ambiguous='infer').tz_localize(None)
                         all_dfs.append(df_temp)
-                except Exception:
-                    continue
+                except Exception: continue
 
-        if not all_dfs:
-            return None
+        if not all_dfs: return None
 
         combined_df = pd.concat(all_dfs)
         combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
@@ -186,13 +172,11 @@ class DataDownloader:
 
         try:
             start_dt_filter = pd.to_datetime(start_date)
-            end_dt_filter = pd.to_datetime(end_date) + timedelta(days=3)
+            end_dt_filter = pd.to_datetime(end_date)
             combined_df = combined_df[(combined_df.index.date >= start_dt_filter.date()) & (combined_df.index.date <= end_dt_filter.date())]
-        except ValueError:
-            pass
+        except ValueError: pass
 
-        if combined_df.empty:
-            return None
+        if combined_df.empty: return None
 
         combined_df.attrs['ticker'] = ticker 
         return combined_df
@@ -204,40 +188,26 @@ class DataDownloader:
                 shutil.rmtree(interval_data_dir)
                 os.makedirs(interval_data_dir)
                 self._save_download_status(None, False)
-            except Exception as e:
-                logging.error(f"刪除 {interval_data_dir} 目錄失敗: {e}")
-                raise
+            except Exception: pass
 
     def _is_trading_day_and_after_close(self, current_time: datetime) -> bool:
-        if current_time.weekday() >= 5:
-            return False
+        if current_time.weekday() >= 5: return False
         close_hour, close_minute = 13, 30
-        if current_time.hour > close_hour or (current_time.hour == close_hour and current_time.minute >= close_minute):
-            return True
-        return False
+        return current_time.hour > close_hour or (current_time.hour == close_hour and current_time.minute >= close_minute)
 
     def _download_and_cache_single_ticker(self, ticker: str, download_start_date_str: str, current_end_date_str: str, force_full_refresh: bool) -> str | None:
         try:
             fetched_df = self.fetch_stock_data_raw(ticker, download_start_date_str, current_end_date_str, interval='1d', retries=3)
-            
             if fetched_df is not None and not fetched_df.empty:
                 self.save_df_to_raw_parquet(fetched_df, ticker, interval='1d', overwrite=True)
                 return ticker
             return None
-        except Exception as e:
-            return None
+        except Exception: return None
 
     def download_and_cache_all_raw_data(self, tickers_to_update: list, stop_flag: threading.Event, update_callback=None, force_full_refresh: bool = False, reverse_order: bool = False, force_update_tickers: bool = False) -> str:
-        if force_update_tickers:
-            if UPDATER_LOADED:
-                try:
-                    if update_callback: update_callback(("status", "正在強制更新股票代號列表..."))
-                    update_stock_list()
-                    if update_callback: time.sleep(1)
-                except Exception as e:
-                    logging.error(f"強制更新股票代號列表時發生錯誤: {e}")
-            else:
-                logging.warning("無法執行強制更新，因為 ticker_updater.py 模組未載入。")
+        if force_update_tickers and UPDATER_LOADED:
+            try: update_stock_list()
+            except Exception: pass
         
         taipei_tz = timezone('Asia/Taipei')
         now = datetime.now(taipei_tz)
@@ -257,46 +227,34 @@ class DataDownloader:
         final_force_refresh = force_full_refresh or auto_force_refresh_due_to_cross_day
 
         if final_force_refresh:
-            if update_callback: update_callback(("status", "正在執行強制完整原始數據下載..."))
             self.delete_all_raw_cached_data(interval='1d')
             self._save_download_status(None, False)
         
         download_start_date_for_fetch = MIN_HISTORY_START_DATE if final_force_refresh else DEFAULT_DOWNLOAD_START_DATE
         processed_fetch_count = 0 
-        
-        tomorrow_date_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
 
+        # 🌟 最關鍵防護：執行緒從 40 降到 4，避免被 Yahoo 封鎖
         max_workers_download = 4 
-        
+
         start_fetch_time = time.time()
         with ThreadPoolExecutor(max_workers=max_workers_download) as executor:
-            futures = {executor.submit(self._download_and_cache_single_ticker, ticker, download_start_date_for_fetch, tomorrow_date_str, final_force_refresh): ticker for ticker in all_tickers}
+            # 🌟 傳入的目標日期維持 today_date_str 就好，你的底層會自動 +1
+            futures = {executor.submit(self._download_and_cache_single_ticker, ticker, download_start_date_for_fetch, today_date_str, final_force_refresh): ticker for ticker in all_tickers}
 
             for future in as_completed(futures):
                 if stop_flag.is_set():
-                    if update_callback: update_callback(("status", "原始數據下載已中止。"))
                     self._save_download_status(today_date_str, False)
                     return "中止"
-                
-                try:
-                    future.result()
-                except Exception as e:
-                    pass
+                try: future.result()
+                except Exception: pass
                 
                 processed_fetch_count += 1
-                if update_callback:
-                    update_callback(("progress", processed_fetch_count, total_tickers))
-
-        end_fetch_time = time.time()
-        if update_callback:
-            update_callback(("download_time", end_fetch_time - start_fetch_time))
+                if update_callback: update_callback(("progress", processed_fetch_count, total_tickers))
 
         final_status = "完成"
         if processed_fetch_count == total_tickers:
-            if self._is_trading_day_and_after_close(now):
-                self._save_download_status(today_date_str, True)
-            else:
-                self._save_download_status(today_date_str, False)
+            if self._is_trading_day_and_after_close(now): self._save_download_status(today_date_str, True)
+            else: self._save_download_status(today_date_str, False)
         else:
             final_status = "部分完成"
             self._save_download_status(today_date_str, False)
