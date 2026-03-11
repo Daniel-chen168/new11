@@ -1,313 +1,310 @@
-# stock_analyzer.py (盤中日期修正乾淨版)
-import pandas as pd
-import os
-from datetime import datetime, timedelta
-import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
-import shutil 
-from pytz import timezone 
-import time
-import numpy as np 
-
-MIN_DATA_FOR_ANALYSIS = 20
-
-try:
-    from data_downloader import DataDownloader, MIN_HISTORY_START_DATE, DEFAULT_DOWNLOAD_START_DATE
-except ImportError:
-    logging.error("無法導入 data_downloader.py，使用簡化版 DataDownloader。")
-    MIN_HISTORY_START_DATE = "2024-03-01"
-    DEFAULT_DOWNLOAD_START_DATE = "2024-03-01"
-
-    class DataDownloader:
-        def __init__(self, data_dir="stock_data"):
-            self.data_dir = data_dir
-            if not os.path.exists(self.data_dir):
-                os.makedirs(self.data_dir)
-
-        def load_df_from_raw_parquet(self, ticker: str, start_date: str, end_date: str, interval: str = '1d') -> pd.DataFrame | None:
-            filepath = os.path.join(self.data_dir, interval, f"{ticker.replace('.', '_')}_{start_date}_{end_date}.parquet")
-            if os.path.exists(filepath):
-                try:
-                    df = pd.read_parquet(filepath)
-                    if df.index.tz is not None:
-                        df.index = df.index.tz_localize(None)
-                    return df
-                except Exception as e:
-                    logging.error(f"簡化版載入 {filepath} 失敗: {e}")
-            return None
-
-        def download_and_cache_all_raw_data(self, tickers_to_update: list, stop_flag: threading.Event, update_callback=None, force_full_refresh: bool = False, reverse_order: bool = False) -> str:
-            time.sleep(1) 
-            if stop_flag.is_set(): return "中止"
-            return "完成"
-
-def analyze_bollinger_bands_status(df):
-    if df.empty: return "資料不足"
-    required_cols = ['Close', 'BB_Mid', 'BB_High', 'BB_Low', 'Bandwidth', 'MA5', 'MA20', 'MA60']
-    if not all(col in df.columns for col in required_cols):
-        return "數據異常 (欄位缺失)"
-
-    df_clean = df.dropna(subset=required_cols)
-    if df_clean.empty: return "資料不足 (計算後為空)"
-    
-    if len(df_clean) < 2:
-        last_row = df_clean.iloc[-1]
-        close = last_row['Close']
-        mid = last_row['BB_Mid']
-        if pd.isna(close) or pd.isna(mid): return "數據異常 (NaN 值)"
-        if close < mid: return "中軌之下"
-        elif close > mid: return "中軌之上"
-        else: return "盤整"
-    
-    last_row = df_clean.iloc[-1]
-    second_last_row = df_clean.iloc[-2]
-
-    close = last_row['Close']
-    upper = last_row['BB_High']
-    lower = last_row['BB_Low']
-    mid = last_row['BB_Mid']
-    bandwidth = last_row['Bandwidth']
-    ma5 = last_row['MA5']
-    ma20 = last_row['MA20']
-    ma60 = last_row['MA60']
-
-    if pd.isna(close) or pd.isna(upper) or pd.isna(lower) or pd.isna(mid) or pd.isna(bandwidth) or pd.isna(ma5) or pd.isna(ma20) or pd.isna(ma60):
-        return "數據異常 (NaN 值)"
-
-    is_si_da_jie_kong = (close < ma5) and (ma5 < ma20) and (ma20 < ma60) and (close <= lower * 1.01) 
-    if is_si_da_jie_kong: return "四大皆空"
-
-    status = "盤整"
-    if close > upper * 1.02 and bandwidth > 10: status = "飆股格局"
-    elif close > upper and bandwidth > 8: status = "飆股格局"
-    elif pd.notna(second_last_row['Bandwidth']) and close > mid and close > second_last_row['Close'] and bandwidth > 5 and bandwidth > second_last_row['Bandwidth'] * 1.1:
-        status = "起漲時刻"
-    elif close > mid and close > second_last_row['Close']:
-        status = "起漲時刻"
-    elif bandwidth < 3: status = "通道收縮"
-    elif bandwidth > 5 and pd.notna(second_last_row['Bandwidth']) and bandwidth > second_last_row['Bandwidth'] * 1.1:
-        status = "通道擴張"
-    
-    if close < mid: status = "中軌之下"
-    return status
-
-class StockAnalyzer:
-    def __init__(self, data_dir="stock_data"):
-        self.data_dir = data_dir
-        self.data_downloader = DataDownloader(data_dir=self.data_dir) 
-        self.ticker_names = self._load_ticker_names()
-        self.all_daily_data_in_memory = {}
-        self._load_all_cached_data_to_memory_and_calculate_indicators() 
-
-    def _load_ticker_names(self):
-        ticker_info = {}
-        try:
-            with open("ticker_names.txt", "r", encoding="utf-8") as f:
-                for line in f:
-                    parts = line.strip().split(maxsplit=2)
-                    if len(parts) == 3:
-                        ticker, name, category = parts
-                        ticker_info[ticker] = (name, category)
-                    elif len(parts) == 2:
-                        ticker, name = parts
-                        ticker_info[ticker] = (name, "")
-        except:
-            ticker_info = {"2330.TW": ("台積電", "半導體")}
-        return ticker_info
-
-    def _load_all_cached_data_to_memory_and_calculate_indicators(self, update_callback=None, stop_flag: threading.Event = None):
-        self.all_daily_data_in_memory = {}
-        all_known_tickers = list(self.ticker_names.keys())
-        with ThreadPoolExecutor(max_workers=min(os.cpu_count() * 8 if os.cpu_count() else 40, 80)) as executor:
-            futures = {executor.submit(self._load_and_calculate_single_ticker, ticker): ticker for ticker in all_known_tickers}
-            for future in as_completed(futures):
-                ticker_name = futures[future]
-                try:
-                    df_with_indicators = future.result()
-                    if df_with_indicators is not None and not df_with_indicators.empty:
-                        self.all_daily_data_in_memory[ticker_name] = df_with_indicators
-                except: pass
-
-    def _load_and_calculate_single_ticker(self, ticker: str) -> pd.DataFrame | None:
-        taipei_tz = timezone('Asia/Taipei')
-        # 🌟 修改點：日期加一天確保涵蓋今日
-        tomorrow_str = (datetime.now(taipei_tz) + timedelta(days=1)).strftime("%Y-%m-%d")
-        df_raw = self.data_downloader.load_df_from_raw_parquet(ticker, MIN_HISTORY_START_DATE, tomorrow_str, interval='1d')
-        if df_raw is not None and not df_raw.empty:
-            return self.calculate_indicators(df_raw.copy())
-        return None
-
-    def _calculate_atr(self, df, period=14):
-        if len(df) < period + 1: return None
-        df_temp = df.copy()
-        df_temp['high_low'] = df_temp['High'] - df_temp['Low']
-        df_temp['high_close_prev'] = np.abs(df_temp['High'] - df_temp['Close'].shift(1))
-        df_temp['low_close_prev'] = np.abs(df_temp['Low'] - df_temp['Close'].shift(1))
-        df_temp['tr'] = df_temp[['high_low', 'high_close_prev', 'low_close_prev']].max(axis=1)
-        return df_temp['tr'].ewm(span=period, adjust=False).mean().iloc[-1] if not df_temp['tr'].empty else None
-
-    def calculate_indicators(self, df: pd.DataFrame, bb_window=20) -> pd.DataFrame:
-        if df.empty or 'Close' not in df.columns: return df
-        df = df.sort_index()
-
-        if len(df) < 60:
-            for col in ['MA5', 'MA20', 'MA60', 'BB_Mid', 'BB_Std', 'BB_High', 'BB_Low', 'Bandwidth', 'BB_Std_Dev_Used', 'ATR_Value']:
-                df[col] = pd.NA
-            return df
-
-        df['MA5'] = df['Close'].rolling(window=5).mean()
-        df['MA20'] = df['Close'].rolling(window=20).mean()
-        df['MA60'] = df['Close'].rolling(window=60).mean()
-        atr_value = self._calculate_atr(df, period=14)
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IKE 盤中監控系統 (當日推薦版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0d1117; color: #c9d1d9; font-family: "微軟正黑體", sans-serif; }
+        .btn-blue { background-color: #1f6feb; border: 1px solid #388bfd; }
+        .btn-cyan { background-color: #0891b2; border: 1px solid #22d3ee; }
+        .btn-dark { background-color: #161b22; border: 1px solid #30363d; }
+        .btn-debug { background-color: #9a6700; border: 1px solid #d29922; color: #f0e042; }
         
-        bb_dev = 2.0
-        if atr_value is not None and not df['Close'].empty:
-            last_close_price = df['Close'].values[-1] 
-            if last_close_price != 0:
-                atr_percentage = (atr_value / last_close_price) * 100
-                if atr_percentage > 3.0: bb_dev = 2.2
-                elif atr_percentage > 1.5: bb_dev = 2.1
-                else: bb_dev = 2.0
-
-        try:
-            import talib
-            df['BB_High'], df['BB_Mid'], df['BB_Low'] = talib.BBANDS(df['Close'].values, timeperiod=bb_window, nbdevup=bb_dev, nbdevdn=bb_dev, matype=0)
-            df['BB_Std'] = df['Close'].rolling(window=bb_window).std()
-        except:
-            df['BB_Mid'] = df['Close'].rolling(window=bb_window).mean()
-            df['BB_Std'] = df['Close'].rolling(window=bb_window).std()
-            df['BB_High'] = df['BB_Mid'] + df['BB_Std'] * bb_dev
-            df['BB_Low'] = df['BB_Mid'] - df['BB_Std'] * bb_dev
-
-        if 'BB_Mid' in df.columns and not df['BB_Mid'].isnull().all() and (not df['BB_Mid'].empty and pd.notna(df['BB_Mid'].iloc[-1]) and df['BB_Mid'].iloc[-1] != 0):
-            df['Bandwidth'] = ((df['BB_High'] - df['BB_Low']) / df['BB_Mid']) * 100
-        else:
-            df['Bandwidth'] = pd.NA
+        table { border-collapse: collapse; width: 100%; margin-top: 10px; table-layout: fixed; }
+        th { background-color: #161b22; padding: 12px; border: 1px solid #30363d; font-size: 14px; position: relative; }
+        td { padding: 12px; border: 1px solid #30363d; text-align: center; font-size: 15px; }
+        .row-even { background-color: #11161d; }
         
-        df['BB_Std_Dev_Used'] = bb_dev
-        df['ATR_Value'] = atr_value if atr_value is not None else pd.NA
-        return df
+        /* 推薦清單專屬樣式 (黃金高亮) */
+        .table-recommend th { background-color: #3d2a00; border-color: #d29922; color: #e3b341; }
+        .table-recommend td { border-color: #d29922; background-color: #1a1405; }
+        .table-recommend .row-even td { background-color: #241c08; }
 
-    def get_price_on_date(self, ticker: str, date_str: str) -> float | None:
-        try:
-            target_date = pd.to_datetime(date_str).date()
-            taipei_tz = timezone('Asia/Taipei')
-            df = self.all_daily_data_in_memory.get(ticker)
+        /* 欄位寬度 */
+        .col-code { width: 75px; }
+        .col-name { width: 100px; }
+        .col-period { width: 85px; } 
+        .col-date { width: 110px; }
+        .col-status { width: 120px; }
+        
+        /* 漲跌幅顏色邏輯 */
+        .text-up { color: #f85149; font-weight: bold; }
+        .text-down { color: #3fb950; font-weight: bold; }
+        .text-flat { color: #d29922; font-weight: bold; }
+        
+        /* 排序游標與箭頭 */
+        .sortable { cursor: pointer; transition: background 0.2s; }
+        .sortable:hover { background-color: #21262d; }
+        .sort-icon { font-size: 12px; margin-left: 5px; color: #8b949e; }
+        
+        /* 超連結樣式 */
+        .stock-link { text-decoration: none; transition: color 0.2s; display: block; width: 100%; height: 100%; }
+        .stock-link:hover { color: #58a6ff; text-decoration: underline; }
+    </style>
+</head>
+<body class="p-6">
 
-            if df is None or df.empty:
-                # 🌟 修改點：日期加一天確保涵蓋今日
-                tomorrow_str = (datetime.now(taipei_tz) + timedelta(days=1)).strftime("%Y-%m-%d")
-                df_raw = self.data_downloader.load_df_from_raw_parquet(ticker, MIN_HISTORY_START_DATE, tomorrow_str, interval='1d')
-                if df_raw is not None and not df_raw.empty:
-                    df = self.calculate_indicators(df_raw)
-                    self.all_daily_data_in_memory[ticker] = df
-                else: return None
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold">IKE 盤中監控系統 <span class="text-sm text-cyan-400">布林通道版</span></h1>
+        <div class="flex items-center gap-4">
+            <span class="text-xs text-gray-400" id="update-time">最後更新：讀取中...</span>
+        </div>
+    </div>
 
-            if df is not None and not df.empty:
-                if df.index.tz is not None: df.index = df.index.tz_localize(None)
-                past_data = df[df.index.date <= target_date]
-                if not past_data.empty:
-                    price_date = past_data.index[-1]
-                    if 'Close' in past_data.columns and pd.notna(past_data.loc[price_date, 'Close']):
-                        return past_data.loc[price_date, 'Close']
-            return None
-        except: return None
+    <div id="recommendation-section" class="mb-10 hidden">
+        <h2 class="text-xl font-bold text-yellow-500 mb-2 flex items-center">
+            <span class="mr-2">🌟</span> 當日印象派推薦 (二次篩選)
+        </h2>
+        <table class="table-recommend">
+            <thead>
+                <tr>
+                    <th class="col-code">代碼</th>
+                    <th class="col-name">名稱</th>
+                    <th>產業類別</th>
+                    <th class="col-period">觸發期間</th>
+                    <th class="col-date">觀察日期</th>
+                    <th>觀察價</th>
+                    <th>最新價</th>
+                    <th>漲跌幅</th>
+                    <th>成交量</th>
+                    <th class="col-status">布林狀態</th>
+                </tr>
+            </thead>
+            <tbody id="recommend-body"></tbody>
+        </table>
+    </div>
 
-    def calculate_price_change_percentage(self, ticker: str, observation_date_str: str) -> tuple[float | None, str]:
-        try:
-            observation_price = self.get_price_on_date(ticker, observation_date_str)
-            if observation_price is None: return None, "無法獲取觀察日期的價格。"
+    <hr class="border-gray-700 mb-6">
 
-            latest_df = self.all_daily_data_in_memory.get(ticker)
-            if latest_df is None or latest_df.empty:
-                taipei_tz = timezone('Asia/Taipei')
-                # 🌟 修改點：日期加一天確保涵蓋今日
-                tomorrow_str = (datetime.now(taipei_tz) + timedelta(days=1)).strftime("%Y-%m-%d")
-                df_raw = self.data_downloader.load_df_from_raw_parquet(ticker, MIN_HISTORY_START_DATE, tomorrow_str, interval='1d')
-                if df_raw is not None and not df_raw.empty:
-                    latest_df = self.calculate_indicators(df_raw)
-                    self.all_daily_data_in_memory[ticker] = latest_df
-                else: return None, "無法獲取最新交易日的價格。"
+    <div class="flex justify-between items-end mb-2">
+        <h2 class="text-xl font-bold text-cyan-400">📊 監控雷達 (一次篩選)</h2>
+        <div class="flex gap-2">
+            <button onclick="filterByStatus('起漲時刻')" class="btn-cyan px-3 py-1.5 rounded text-xs">篩選：起漲時刻</button>
+            <button onclick="filterByStatus('盤整')" class="btn-dark px-3 py-1.5 rounded text-xs">篩選：盤整</button>
+            <button onclick="resetFilter()" class="btn-debug px-3 py-1.5 rounded text-xs">顯示全部 (重置)</button>
+        </div>
+    </div>
 
-            if latest_df.index.tz is not None: latest_df.index = latest_df.index.tz_localize(None)
-            latest_price = latest_df['Close'].iloc[-1]
-            if observation_price == 0: return None, "觀察日期的價格為零。"
+    <div id="status-message" class="text-center py-10 text-gray-400 hidden">
+        <span id="msg-text" class="text-xl">目前此時段無符合標的</span>
+    </div>
 
-            percentage_change = ((latest_price - observation_price) / observation_price) * 100
-            return percentage_change, "計算成功。"
-        except Exception as e: return None, f"計算錯誤: {e}"
+    <table id="main-table">
+        <thead>
+            <tr>
+                <th class="col-code sortable" onclick="sortData('代碼')">代碼 <span class="sort-icon" id="icon-代碼"></span></th>
+                <th class="col-name sortable" onclick="sortData('名稱')">名稱 <span class="sort-icon" id="icon-名稱"></span></th>
+                <th class="sortable" onclick="sortData('類別')">產業類別 <span class="sort-icon" id="icon-類別"></span></th>
+                <th class="col-date sortable" onclick="sortData('觀察點日期')">觀察日期 <span class="sort-icon" id="icon-觀察點日期"></span></th>
+                <th class="sortable" onclick="sortData('觀察點價格')">觀察價 <span class="sort-icon" id="icon-觀察點價格"></span></th>
+                <th class="sortable" onclick="sortData('最新價格')">最新價 <span class="sort-icon" id="icon-最新價格"></span></th>
+                <th class="sortable" onclick="sortData('漲跌幅百分比')">漲跌幅 <span class="sort-icon" id="icon-漲跌幅百分比"></span></th>
+                <th class="sortable" onclick="sortData('raw_volume')">成交量 <span class="sort-icon" id="icon-raw_volume"></span></th>
+                <th class="col-status sortable" onclick="sortData('布林通道狀態')">布林狀態 <span class="sort-icon" id="icon-布林通道狀態"></span></th>
+            </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+    </table>
 
-    def _process_single_ticker_for_bullish_selection(self, ticker, start_date, end_date):
-        try:
-            df = self.all_daily_data_in_memory.get(ticker)
-            if df is None or df.empty: return None
-            if df.index.tz is not None: df.index = df.index.tz_localize(None)
+    <script>
+        let recommendData = [];     
+        let primaryData = [];       
+        let currentDisplayData = [];
+        
+        let currentSort = { column: '觀察點日期', order: 'desc' };
 
-            if len(df) < MIN_DATA_FOR_ANALYSIS: return None
-
-            rise_date, rise_price = None, None
-            relevant_data = df.tail(MIN_DATA_FOR_ANALYSIS).copy() if len(df) >= MIN_DATA_FOR_ANALYSIS else df.copy()
-
-            if not relevant_data.empty and 'Close' in relevant_data.columns and 'BB_Mid' in relevant_data.columns:
-                for i in range(len(relevant_data) - 1, 0, -1):
-                    if pd.isna(relevant_data['BB_Mid'].iloc[i]) or pd.isna(relevant_data['BB_Mid'].iloc[i-1]): continue
-                    if relevant_data['Close'].iloc[i] > relevant_data['BB_Mid'].iloc[i] and relevant_data['Close'].iloc[i-1] <= relevant_data['BB_Mid'].iloc[i-1]:
-                        rise_date = relevant_data.index[i].strftime("%Y-%m-%d")
-                        rise_price = relevant_data['Close'].iloc[i]
-                        break
-
-            if not df.empty and pd.notna(df['MA20'].iloc[-1]) and df['Close'].iloc[-1] > df['MA20'].iloc[-1] and rise_date is not None:
-                stock_name, stock_category = self.ticker_names.get(ticker, ("", ""))
-                latest_price = df['Close'].iloc[-1]
-                latest_volume_shares = df['Volume'].iloc[-1]
+        async function loadData() {
+            try {
+                const res = await fetch('./data.json'); 
+                if (!res.ok) throw new Error('無法讀取 data.json');
                 
-                change_percent = ((latest_price - rise_price) / rise_price) * 100 if rise_price else None
-                return {
-                    "代碼": ticker.split('.')[0], "名稱": stock_name, "類別": stock_category,
-                    "觀察點日期": rise_date, "觀察點價格": f"{rise_price:.2f}",
-                    "最新價格": f"{latest_price:.2f}",
-                    "漲跌幅百分比": f"{change_percent:.2f}%" if change_percent is not None else "N/A",
-                    "成交量": f"{(latest_volume_shares / 1000):,.0f}",
-                    "raw_volume": latest_volume_shares,
-                    "布林通道狀態": analyze_bollinger_bands_status(df),
-                    "標準差": f"{df['BB_Std_Dev_Used'].iloc[-1]:.1f}" if pd.notna(df['BB_Std_Dev_Used'].iloc[-1]) else "N/A",
-                    "ATR": f"{df['ATR_Value'].iloc[-1]:.2f}" if pd.notna(df['ATR_Value'].iloc[-1]) else "N/A"
+                const rawJson = await res.json();
+                document.getElementById('update-time').innerText = `系統更新時間：${rawJson.last_update || "未知"}`;
+                
+                if (rawJson.history && rawJson.history.length > 0) {
+                    primaryData = rawJson.history[0].primary_list || [];
+                    recommendData = rawJson.history[0].secondary_list || [];
+                    currentDisplayData = [...primaryData];
                 }
-            return None
-        except: return None
+                
+                renderRecommendTable();
+                sortData('觀察點日期', true);
 
-    def run_stock_selection(self, tickers: list, start_date: str, end_date: str, selection_type="bullish", low_price=None, high_price=None, update_callback=None, stop_flag=None, reverse_order: bool = False, custom_observation_date_str: str = None):
-        results = []
-        tickers_to_process = tickers[::-1] if reverse_order else tickers
-        with ThreadPoolExecutor(max_workers=min(os.cpu_count() * 12 if os.cpu_count() else 60, 140)) as executor:
-            futures = [executor.submit(self._process_single_ticker_for_bullish_selection, ticker, start_date, end_date) for ticker in tickers_to_process]
-            for future in as_completed(futures):
-                try:
-                    result = future.result()
-                    if result: results.append(result)
-                except: pass
-        return results
+            } catch (err) {
+                console.error("載入失敗:", err);
+                document.getElementById('msg-text').innerHTML = `<span class="text-red-500">載入失敗: ${err.message}</span>`;
+                document.getElementById('status-message').classList.remove('hidden');
+            }
+        }
 
-    def ensure_local_data_and_calculate_indicators(self, tickers: list, update_callback=None, stop_flag: threading.Event = None, data_downloader_instance=None) -> str:
-        downloader = data_downloader_instance if data_downloader_instance else self.data_downloader
-        self.all_daily_data_in_memory = {}
-        with ThreadPoolExecutor(max_workers=min(os.cpu_count() * 12 if os.cpu_count() else 60, 140)) as executor:
-            futures = {executor.submit(self._load_and_calculate_single_ticker_with_downloader, ticker, downloader): ticker for ticker in tickers}
-            for future in as_completed(futures):
-                ticker_name = futures[future]
-                try:
-                    df_with_indicators = future.result()
-                    if df_with_indicators is not None and not df_with_indicators.empty:
-                        self.all_daily_data_in_memory[ticker_name] = df_with_indicators
-                except: pass
-        return "完成"
+        // 🌟 生成 Yahoo 股市連結
+        function getYahooLink(code) {
+            return `https://tw.stock.yahoo.com/quote/${code}`;
+        }
 
-    def _load_and_calculate_single_ticker_with_downloader(self, ticker: str, downloader_instance) -> pd.DataFrame | None:
-        taipei_tz = timezone('Asia/Taipei')
-        # 🌟 修改點：日期加一天確保涵蓋今日
-        tomorrow_str = (datetime.now(taipei_tz) + timedelta(days=1)).strftime("%Y-%m-%d")
-        df_raw = downloader_instance.load_df_from_raw_parquet(ticker, MIN_HISTORY_START_DATE, tomorrow_str, interval='1d')
-        if df_raw is not None and not df_raw.empty:
-            return self.calculate_indicators(df_raw.copy())
-        return None
+        // 生成推薦列
+        function generateRecommendRows(dataList) {
+            return dataList.map((item, index) => {
+                const pctStr = item.漲跌幅百分比 || item.漲跌幅 || "0%"; 
+                const pctNum = parseFloat(pctStr.replace('%', ''));
+                let pctClass = 'text-flat';
+                if (pctNum > 0) pctClass = 'text-up';
+                else if (pctNum < 0) pctClass = 'text-down';
+
+                const statusStr = item.布林通道狀態 || "--";
+                const statusColor = statusStr.includes('起漲') || statusStr.includes('飆股') ? 'text-cyan-400 font-bold' : 'text-gray-400';
+
+                let periodBadge = '--';
+                if (item.期間 === '當日') {
+                    periodBadge = '<span class="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold shadow-md shadow-red-900/50">當日 T</span>';
+                } else if (item.期間 === '1日') {
+                    periodBadge = '<span class="bg-orange-500 text-white px-2 py-0.5 rounded text-xs font-bold shadow-md shadow-orange-900/50">1日前 T-1</span>';
+                } else if (item.期間 === '2日') {
+                    periodBadge = '<span class="bg-yellow-600 text-white px-2 py-0.5 rounded text-xs font-bold shadow-md shadow-yellow-900/50">2日前 T-2</span>';
+                } else if (item.期間) {
+                    periodBadge = `<span class="bg-gray-700 text-gray-300 px-2 py-0.5 rounded text-xs">${item.期間}</span>`;
+                }
+
+                // 加入 a 標籤超連結
+                return `
+                    <tr class="${index % 2 === 0 ? 'row-even' : ''}">
+                        <td class="col-code font-mono"><a href="${getYahooLink(item.代碼)}" target="_blank" class="stock-link text-blue-400">${item.代碼 || '--'}</a></td>
+                        <td class="col-name text-blue-300 font-bold"><a href="${getYahooLink(item.代碼)}" target="_blank" class="stock-link">${item.名稱 || '--'}</a></td>
+                        <td class="text-sm text-gray-400">${item.類別 || '--'}</td>
+                        <td>${periodBadge}</td>
+                        <td class="col-date text-sm text-yellow-300">${item.觀察點日期 || '--'}</td>
+                        <td class="text-gray-300">${item.觀察點價格 || '--'}</td>
+                        <td class="font-mono text-yellow-500">${item.最新價格 || '--'}</td>
+                        <td class="${pctClass}">${pctStr}</td>
+                        <td class="text-gray-300">${item.成交量 || item.當日成交量 || '--'}</td>
+                        <td class="${statusColor}">${statusStr}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // 生成主列
+        function generateMainRows(dataList) {
+            return dataList.map((item, index) => {
+                const pctStr = item.漲跌幅百分比 || "0%";
+                const pctNum = parseFloat(pctStr.replace('%', ''));
+                let pctClass = 'text-flat';
+                if (pctNum > 0) pctClass = 'text-up';
+                else if (pctNum < 0) pctClass = 'text-down';
+
+                const statusStr = item.布林通道狀態 || "--";
+                const statusColor = statusStr.includes('起漲') || statusStr.includes('飆股') ? 'text-cyan-400 font-bold' : 'text-gray-400';
+
+                // 加入 a 標籤超連結
+                return `
+                    <tr class="${index % 2 === 0 ? 'row-even' : ''}">
+                        <td class="col-code font-mono"><a href="${getYahooLink(item.代碼)}" target="_blank" class="stock-link text-blue-400">${item.代碼 || '--'}</a></td>
+                        <td class="col-name text-blue-300 font-bold"><a href="${getYahooLink(item.代碼)}" target="_blank" class="stock-link">${item.名稱 || '--'}</a></td>
+                        <td class="text-sm text-gray-400">${item.類別 || '--'}</td>
+                        <td class="col-date text-sm text-yellow-300">${item.觀察點日期 || '--'}</td>
+                        <td class="text-gray-300">${item.觀察點價格 || '--'}</td>
+                        <td class="font-mono text-yellow-500">${item.最新價格 || '--'}</td>
+                        <td class="${pctClass}">${item.漲跌幅百分比 || '--'}</td>
+                        <td class="text-gray-300">${item.成交量 || '--'}</td>
+                        <td class="${statusColor}">${statusStr}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderRecommendTable() {
+            const secSection = document.getElementById('recommendation-section');
+            const tbody = document.getElementById('recommend-body');
+            
+            if (recommendData && recommendData.length > 0) {
+                recommendData.sort((a, b) => {
+                    const periodOrder = { '當日': 1, '1日': 2, '2日': 3 };
+                    const orderA = periodOrder[a.期間] || 99;
+                    const orderB = periodOrder[b.期間] || 99;
+                    if (orderA !== orderB) return orderA - orderB; 
+                    return (b.raw_volume || 0) - (a.raw_volume || 0);
+                });
+
+                secSection.classList.remove('hidden');
+                tbody.innerHTML = generateRecommendRows(recommendData);
+            } else {
+                secSection.classList.add('hidden');
+            }
+        }
+
+        function renderMainTable() {
+            const tbody = document.getElementById('table-body');
+            const msgBox = document.getElementById('status-message');
+            const table = document.getElementById('main-table');
+
+            if (currentDisplayData.length === 0) {
+                msgBox.classList.remove('hidden');
+                table.classList.add('hidden');
+            } else {
+                msgBox.classList.add('hidden');
+                table.classList.remove('hidden');
+                tbody.innerHTML = generateMainRows(currentDisplayData);
+            }
+        }
+
+        function sortData(column, isInit = false) {
+            if (!isInit) {
+                if (currentSort.column === column) {
+                    currentSort.order = currentSort.order === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSort.column = column;
+                    currentSort.order = 'desc'; 
+                }
+            }
+
+            const modifier = currentSort.order === 'asc' ? 1 : -1;
+
+            currentDisplayData.sort((a, b) => {
+                let valA = a[column] === undefined ? '' : String(a[column]);
+                let valB = b[column] === undefined ? '' : String(b[column]);
+                let diff = 0;
+
+                const isNumericCol = ['觀察點價格', '最新價格', '漲跌幅百分比', 'raw_volume'].includes(column);
+
+                if (isNumericCol) {
+                    let numA = parseFloat(valA.replace(/,/g, '').replace('%', '')) || 0;
+                    let numB = parseFloat(valB.replace(/,/g, '').replace('%', '')) || 0;
+                    diff = (numA - numB) * modifier;
+                } else {
+                    diff = valA.localeCompare(valB) * modifier;
+                }
+
+                if (diff === 0) {
+                    let volA = parseFloat(a['raw_volume']) || 0;
+                    let volB = parseFloat(b['raw_volume']) || 0;
+                    return volB - volA; 
+                }
+
+                return diff;
+            });
+
+            document.querySelectorAll('.sort-icon').forEach(icon => icon.innerText = '');
+            const activeIcon = document.getElementById(`icon-${column}`);
+            if (activeIcon) {
+                activeIcon.innerText = currentSort.order === 'asc' ? '▲' : '▼';
+            }
+
+            renderMainTable();
+        }
+
+        function filterByStatus(statusName) {
+            currentDisplayData = primaryData.filter(d => d.布林通道狀態 && d.布林通道狀態.includes(statusName));
+            sortData(currentSort.column, true); 
+        }
+
+        function resetFilter() {
+            currentDisplayData = [...primaryData];
+            sortData(currentSort.column, true);
+        }
+
+        window.onload = loadData;
+    </script>
+</body>
+</html>
