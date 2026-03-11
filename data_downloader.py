@@ -1,4 +1,4 @@
-# data_downloader.py (終極防範 yfinance 日期裁切版)
+# data_downloader.py (相容最新 yfinance 防封鎖版)
 
 import yfinance as yf
 import pandas as pd
@@ -22,7 +22,7 @@ except ImportError:
     logging.warning("未能找到 ticker_updater.py，將無法自動更新股票列表。")
 
 DOWNLOAD_STATUS_FILE = "download_status.json"
-DEFAULT_DOWNLOAD_START_DATE = "2024-06-01" # 稍微縮短歷史區間以加快下載速度
+DEFAULT_DOWNLOAD_START_DATE = "2024-06-01" 
 MIN_HISTORY_START_DATE = "2024-06-01" 
 MIN_HISTORY_START_DATE_DT = datetime.strptime(MIN_HISTORY_START_DATE, "%Y-%m-%d")
 REQUIRED_CACHE_DATA_POINTS = 90
@@ -33,14 +33,6 @@ class DataDownloader:
         self.data_dir = data_dir
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
-            
-        # 建立全域 Session 並偽裝成正常的 Google Chrome 瀏覽器
-        self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5"
-        })
         logging.debug("DataDownloader 初始化完成。")
 
     def _load_download_status(self):
@@ -77,16 +69,17 @@ class DataDownloader:
         for t_candidate in possible_tickers:
             for attempt in range(retries):
                 try:
-                    # 基礎防封鎖：拉長每次請求的間隔
                     time.sleep(random.uniform(1.0, 2.5)) 
 
                     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-                    stock = yf.Ticker(t_candidate, session=self.session)
+                    
+                    # 🌟 修正點：移除 session=self.session，讓最新版的 yfinance 自己處理突破封鎖機制
+                    stock = yf.Ticker(t_candidate)
 
-                    # 🌟 終極解法：完全不給 end_date，強制 yfinance 抓到「現在這一刻」的最新資料！
+                    # 終極解法：不設定 end_date，強制抓取到最新的一秒
                     df = stock.history(start=start_dt, interval=interval)
 
-                    # 🌟 雙重保險：如果 yfinance 發生 start 讀取異常回傳空值，改用 period 強制抓取最近一年
+                    # 雙重保險：如果異常回傳空值，強制抓一年
                     if df.empty:
                         df = stock.history(period="1y", interval=interval)
 
@@ -193,7 +186,6 @@ class DataDownloader:
 
         try:
             start_dt_filter = pd.to_datetime(start_date)
-            # 🌟 放寬讀取時的結束日期，給予 3 天緩衝，保證絕不漏接最新數據
             end_dt_filter = pd.to_datetime(end_date) + timedelta(days=3)
             combined_df = combined_df[(combined_df.index.date >= start_dt_filter.date()) & (combined_df.index.date <= end_dt_filter.date())]
         except ValueError:
@@ -274,7 +266,6 @@ class DataDownloader:
         
         tomorrow_date_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
 
-        # 適度調升執行緒，加快抓取速度
         max_workers_download = 4 
         
         start_fetch_time = time.time()
