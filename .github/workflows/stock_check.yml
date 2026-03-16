@@ -17,8 +17,7 @@ jobs:
   run-analysis:
     runs-on: ubuntu-latest
     
-    # ★ 修正重點 1：設定逾時時間為 60 分鐘
-    # 由於加入了隨機延遲以避開 Yahoo Finance 封鎖，程式執行時間會拉長，需給予足夠緩衝
+    # 設定逾時時間為 60 分鐘，確保加入隨機延遲後仍有足夠執行時間
     timeout-minutes: 60
 
     # 授予寫入權限，讓 Action 能夠更新並推送 docs/data.json 回儲存庫
@@ -28,6 +27,9 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          # 取回所有歷史紀錄，避免 rebase 時出錯
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -37,13 +39,13 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          # 根據 main.py 的需求安裝必要套件
+          # 安裝必要套件，包含處理 parquet 格式所需的 pyarrow
           pip install yfinance shioaji pandas requests pytz loguru pyarrow
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run IKE_TOOL
         run: |
-          # 增加 PYTHONPATH 確保能導入同目錄下的 data_downloader.py 等模組
+          # 增加 PYTHONPATH 確保能導入同目錄下的模組
           export PYTHONPATH=$PYTHONPATH:.
           # 執行主程式
           python main.py
@@ -54,11 +56,21 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # ★ 修正重點 2：對應 main.py 的產出路徑 docs/data.json
+          # 檢查 main.py 的產出路徑是否存在
           if [ -f "docs/data.json" ]; then
             git add docs/data.json
-            # 只有在內容有變動時才 commit，避免無意義的推送
-            git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update data.json: $(date +'%Y-%m-%d %H:%M:%S')" && git push)
+            
+            # 只有在內容有變動時才 commit
+            if ! git diff --quiet --staged; then
+              git commit -m "Auto-update data.json: $(date +'%Y-%m-%d %H:%M:%S')"
+              
+              # ★ 關鍵修正：解決 [rejected] fetch first 問題
+              # 先執行 pull 並使用 rebase 模式合併遠端變動，再執行 push
+              git pull --rebase origin main
+              git push origin main
+            else
+              echo "No changes in data.json, skipping push."
+            fi
           else
             echo "Error: docs/data.json not found! 程式可能執行失敗或路徑不正確。"
             exit 1
