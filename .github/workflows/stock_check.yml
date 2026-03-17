@@ -2,25 +2,19 @@ name: IKE_TOOL Scheduled Analysis
 
 on:
   schedule:
-    # 台北時間 (CST) 週一至週五：09:30, 10:30, 11:30, 12:30
-    # 對應 UTC 時間：01:30, 02:30, 03:30, 04:30
-    - cron: '30 1,2,3,4 * * 1-5'
+    # 稍微偏移分鐘數 (30 -> 37, 00 -> 07) 以減少排隊時間
+    # 台北 09:37, 10:37, 11:37, 12:37 (UTC 01:37, 02:37, 03:37, 04:37)
+    - cron: '37 1,2,3,4 * * 1-5'
     
-    # 台北時間 (CST) 週一至週五：13:00
-    # 對應 UTC 時間：05:00
-    - cron: '0 5 * * 1-5'
+    # 台北 13:07 (UTC 05:07)
+    - cron: '7 5 * * 1-5'
   
-  # 允許從 GitHub Actions 頁面手動點擊 "Run workflow" 進行測試
   workflow_dispatch:
 
 jobs:
   run-analysis:
     runs-on: ubuntu-latest
-    
-    # 設定逾時時間為 60 分鐘，確保加入隨機延遲後仍有足夠執行時間
-    timeout-minutes: 60
-
-    # 授予寫入權限，讓 Action 能夠更新並推送 docs/data.json 回儲存庫
+    timeout-minutes: 60 
     permissions:
       contents: write
 
@@ -28,8 +22,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          # 取回所有歷史紀錄，避免 rebase 時出錯
-          fetch-depth: 0
+          fetch-depth: 0 # 確保 pull --rebase 有完整的歷史紀錄
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -39,24 +32,21 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          # 安裝必要套件，包含處理 parquet 格式所需的 pyarrow
+          # 確保包含所有 main.py 所需套件
           pip install yfinance shioaji pandas requests pytz loguru pyarrow
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run IKE_TOOL
         run: |
-          # 增加 PYTHONPATH 確保能導入同目錄下的模組
           export PYTHONPATH=$PYTHONPATH:.
-          # 執行主程式
           python main.py
 
       - name: Commit and Push data.json
         run: |
-          # 設定 GitHub Actions Bot 身分
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # 檢查 main.py 的產出路徑是否存在
+          # 檢查 main.py 產出的路徑
           if [ -f "docs/data.json" ]; then
             git add docs/data.json
             
@@ -64,14 +54,13 @@ jobs:
             if ! git diff --quiet --staged; then
               git commit -m "Auto-update data.json: $(date +'%Y-%m-%d %H:%M:%S')"
               
-              # ★ 關鍵修正：解決 [rejected] fetch first 問題
-              # 先執行 pull 並使用 rebase 模式合併遠端變動，再執行 push
+              # 解決 [rejected] 問題的關鍵：先 rebase 再 push
               git pull --rebase origin main
               git push origin main
             else
               echo "No changes in data.json, skipping push."
             fi
           else
-            echo "Error: docs/data.json not found! 程式可能執行失敗或路徑不正確。"
+            echo "Error: docs/data.json not found!"
             exit 1
           fi
