@@ -2,11 +2,10 @@ name: IKE_TOOL Scheduled Analysis
 
 on:
   schedule:
-    # 稍微偏移分鐘數 (30 -> 37, 00 -> 07) 以減少排隊時間
-    # 台北 09:37, 10:37, 11:37, 12:37 (UTC 01:37, 02:37, 03:37, 04:37)
+    # 台北 09:37, 10:37, 11:37, 12:37
     - cron: '37 1,2,3,4 * * 1-5'
     
-    # 台北 13:07 (UTC 05:07)
+    # 台北 13:07
     - cron: '7 5 * * 1-5'
   
   workflow_dispatch:
@@ -22,7 +21,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 確保 pull --rebase 有完整的歷史紀錄
+          fetch-depth: 0 # 確保 rebase 過程有完整紀錄
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -32,7 +31,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          # 確保包含所有 main.py 所需套件
+          # 安裝分析與 Parquet 處理所需套件
           pip install yfinance shioaji pandas requests pytz loguru pyarrow
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
@@ -46,21 +45,22 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # 檢查 main.py 產出的路徑
+          # 檢查 main.py 是否產出檔案於正確路徑
           if [ -f "docs/data.json" ]; then
             git add docs/data.json
             
-            # 只有在內容有變動時才 commit
+            # 判斷有無變動，避免空的 commit
             if ! git diff --quiet --staged; then
               git commit -m "Auto-update data.json: $(date +'%Y-%m-%d %H:%M:%S')"
               
-              # 解決 [rejected] 問題的關鍵：先 rebase 再 push
-              git pull --rebase origin main
+              # ★ 關鍵修正：處理衝突的強制更新策略
+              # 使用 -X theirs 在 rebase 衝突時強制採用「此次執行產出」的版本
+              git pull --rebase -X theirs origin main
               git push origin main
             else
               echo "No changes in data.json, skipping push."
             fi
           else
-            echo "Error: docs/data.json not found!"
+            echo "Error: docs/data.json not found! 程式執行可能未產出結果。"
             exit 1
           fi
