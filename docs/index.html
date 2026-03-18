@@ -3,29 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IKE 盤中監控系統 - 修正版</title>
-    
+    <title>IKE 盤中監控系統 - 完整功能版</title>
     <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #0d1117; color: #c9d1d9; font-family: "微軟正黑體", sans-serif; }
         .btn-cyan { background-color: #0891b2; border: 1px solid #22d3ee; }
-        .btn-dark { background-color: #161b22; border: 1px solid #30363d; }
         .btn-debug { background-color: #9a6700; border: 1px solid #d29922; color: #f0e042; }
         
         table { border-collapse: collapse; width: 100%; margin-top: 10px; table-layout: fixed; }
-        th { background-color: #161b22; padding: 10px; border: 1px solid #30363d; font-size: 13px; }
-        td { padding: 10px; border: 1px solid #30363d; text-align: center; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        th { background-color: #161b22; padding: 12px 8px; border: 1px solid #30363d; font-size: 13px; color: #8b949e; }
+        td { padding: 12px 8px; border: 1px solid #30363d; text-align: center; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .row-even { background-color: #11161d; }
         
-        /* 推薦清單黃金高亮 */
-        .table-recommend th { background-color: #3d2a00; border-color: #d29922; color: #e3b341; }
-        .table-recommend td { border-color: #d29922; background-color: #1a1405; }
-
-        /* 欄位寬度固定 */
-        .col-code { width: 80px; }
-        .col-name { width: 100px; }
-        .col-sm { width: 70px; }
+        /* 欄位寬度微調 */
+        .col-code { width: 85px; }
+        .col-name { width: 110px; }
+        .col-date { width: 120px; }
         
         .text-up { color: #f85149; font-weight: bold; }
         .text-down { color: #3fb950; font-weight: bold; }
@@ -33,47 +27,31 @@
         
         .sortable { cursor: pointer; transition: background 0.2s; }
         .sortable:hover { background-color: #21262d; }
-        .sort-icon { font-size: 11px; margin-left: 3px; color: #8b949e; }
-        
-        .status-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
-        .status-live { background-color: #065f46; color: #34d399; border: 1px solid #059669; }
-        .status-closed { background-color: #7f1d1d; color: #f87171; border: 1px solid #b91c1c; }
+        .sort-icon { font-size: 11px; margin-left: 3px; color: #58a6ff; }
     </style>
 </head>
 <body class="p-4 md:p-6">
 
     <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <h1 class="text-2xl md:text-3xl font-bold">IKE 盤中監控 <span class="text-sm text-cyan-400 hidden md:inline">IKE_TOOL 核心版</span></h1>
-        <div class="w-full md:w-auto text-left md:text-right bg-gray-900/50 p-2 rounded-lg border border-gray-800">
+        <div>
+            <h1 class="text-2xl md:text-3xl font-bold">IKE 盤中監控 <span class="text-sm text-cyan-400">核心技術版</span></h1>
+            <div class="flex gap-4 mt-2 text-[11px] text-gray-500">
+                <span id="busuanzi_container_site_pv" style="display:none">今日點閱：<span id="busuanzi_value_site_pv" class="text-cyan-500 font-bold">--</span> 次</span>
+                <span id="busuanzi_container_site_uv" style="display:none">訪客人數：<span id="busuanzi_value_site_uv" class="text-green-500 font-bold">--</span> 人</span>
+            </div>
+        </div>
+        <div class="bg-gray-900/50 p-2 rounded border border-gray-800 text-right">
             <span class="text-xs text-gray-400" id="update-time">最後更新：讀取中...</span>
         </div>
     </div>
 
-    <div id="recommendation-section" class="mb-10 hidden overflow-x-auto">
-        <h2 class="text-lg font-bold text-yellow-500 mb-2 flex items-center">🌟 當日印象派推薦</h2>
-        <table class="table-recommend">
-            <thead>
-                <tr>
-                    <th class="col-code">代碼</th>
-                    <th class="col-name">名稱</th>
-                    <th class="col-sm">期間</th>
-                    <th>現價</th>
-                    <th>漲跌幅</th>
-                    <th>成交量</th>
-                    <th>狀態</th>
-                </tr>
-            </thead>
-            <tbody id="recommend-body"></tbody>
-        </table>
-    </div>
-
-    <hr class="border-gray-700 mb-6">
-
     <div class="flex justify-between items-end mb-4 gap-3">
-        <h2 class="text-lg font-bold text-cyan-400">📊 監控雷達</h2>
+        <h2 class="text-lg font-bold text-cyan-400 flex items-center">📊 監控雷達 
+            <span class="ml-2 text-[10px] text-gray-500 font-normal">(日期同則比對量能)</span>
+        </h2>
         <div class="flex gap-2">
-            <button onclick="filterByStatus('起漲時刻')" class="btn-cyan px-3 py-1 rounded text-xs text-white">起漲</button>
-            <button onclick="resetFilter()" class="btn-debug px-3 py-1 rounded text-xs">重置</button>
+            <button onclick="sortData('觀察點日期')" class="btn-cyan px-3 py-1.5 rounded text-xs text-white">按日期排序</button>
+            <button onclick="resetFilter()" class="btn-debug px-3 py-1.5 rounded text-xs">重置視圖</button>
         </div>
     </div>
 
@@ -81,13 +59,13 @@
         <table id="main-table">
             <thead>
                 <tr>
-                    <th class="col-code sortable" onclick="sortData('代碼')">代碼<span class="sort-icon" id="icon-代碼"></span></th>
-                    <th class="col-name sortable" onclick="sortData('名稱')">名稱<span class="sort-icon" id="icon-名稱"></span></th>
-                    <th class="col-sm">期間</th>
-                    <th class="sortable" onclick="sortData('最新價格')">現價<span class="sort-icon" id="icon-最新價格"></span></th>
-                    <th class="sortable" onclick="sortData('漲跌幅百分比')">漲跌幅<span class="sort-icon" id="icon-漲跌幅百分比"></span></th>
-                    <th class="sortable" onclick="sortData('raw_volume')">成交量<span class="sort-icon" id="icon-raw_volume"></span></th>
-                    <th class="sortable" onclick="sortData('布林通道狀態')">狀態<span class="sort-icon" id="icon-布林通道狀態"></span></th>
+                    <th class="col-code sortable" onclick="sortData('代碼')">代碼<span id="icon-代碼" class="sort-icon"></span></th>
+                    <th class="col-name sortable" onclick="sortData('名稱')">名稱<span id="icon-名稱" class="sort-icon"></span></th>
+                    <th class="col-date sortable" onclick="sortData('觀察點日期')">上升觀察日<span id="icon-觀察點日期" class="sort-icon"></span></th>
+                    <th class="sortable" onclick="sortData('最新價格')">現價<span id="icon-最新價格" class="sort-icon"></span></th>
+                    <th class="sortable" onclick="sortData('漲跌幅百分比')">漲跌幅<span id="icon-漲跌幅百分比" class="sort-icon"></span></th>
+                    <th class="sortable" onclick="sortData('raw_volume')">成交量<span id="icon-raw_volume" class="sort-icon"></span></th>
+                    <th class="sortable" onclick="sortData('布林通道狀態')">狀態<span id="icon-布林通道狀態" class="sort-icon"></span></th>
                 </tr>
             </thead>
             <tbody id="table-body"></tbody>
@@ -95,7 +73,6 @@
     </div>
 
     <script>
-        let recommendData = [];     
         let primaryData = [];       
         let currentDisplayData = [];
         let currentSort = { column: '觀察點日期', order: 'desc' };
@@ -107,58 +84,76 @@
                 document.getElementById('update-time').innerText = `最後更新：${rawJson.last_update || "未知"}`;
                 
                 if (rawJson.history && rawJson.history.length > 0) {
-                    const latestRun = rawJson.history[0];
-                    primaryData = latestRun.primary_list || [];
-                    recommendData = latestRun.secondary_list || [];
+                    primaryData = rawJson.history[0].primary_list || [];
                     currentDisplayData = [...primaryData];
                 }
-                renderTable('recommend-body', recommendData, true);
-                renderTable('table-body', currentDisplayData, false);
-                if (recommendData.length > 0) document.getElementById('recommendation-section').classList.remove('hidden');
-            } catch (err) { console.error(err); }
+                // 初始執行：日期(主) + 成交量(副) 排序
+                sortData('觀察點日期', true);
+            } catch (err) { console.error("Data Load Error", err); }
         }
 
-        // 核心修正：確保 7 個 <td> 與 7 個 <th> 完全對應
-        function renderTable(targetId, dataList, isRecommend) {
-            const tbody = document.getElementById(targetId);
-            tbody.innerHTML = dataList.map((item, index) => {
+        function renderTable() {
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = currentDisplayData.map((item, index) => {
                 const pctStr = item.漲跌幅百分比 || item.漲跌幅 || "0%"; 
                 const pctNum = parseFloat(pctStr.replace('%', ''));
                 const pctClass = pctNum > 0 ? 'text-up' : (pctNum < 0 ? 'text-down' : 'text-flat');
-                
-                // 格式化成交量數字 (加上千分位)
-                const vol = item.成交量 ? String(item.成交量).replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "--";
+                const volFormatted = item.成交量 ? String(item.成交量).replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "--";
 
                 return `
-                    <tr class="${index % 2 === 0 ? 'row-even' : ''} hover:bg-gray-800">
-                        <td class="col-code font-mono text-blue-400"><a href="https://tw.stock.yahoo.com/quote/${item.代碼}" target="_blank">${item.代碼}</a></td>
-                        <td class="col-name text-blue-300 font-bold">${item.名稱}</td>
-                        <td class="col-sm text-gray-400">${item.期間 || '當日'}</td>
+                    <tr class="${index % 2 === 0 ? 'row-even' : ''} hover:bg-gray-800 transition-all">
+                        <td class="font-mono text-blue-400"><a href="https://tw.stock.yahoo.com/quote/${item.代碼}" target="_blank">${item.代碼}</a></td>
+                        <td class="text-blue-200 font-bold">${item.名稱}</td>
+                        <td class="text-gray-400 text-sm">${item.觀察點日期 || '--'}</td>
                         <td class="font-mono text-yellow-500">${item.最新價格}</td>
                         <td class="${pctClass}">${pctStr}</td>
-                        <td class="font-mono text-gray-300 text-right">${vol}</td>
+                        <td class="font-mono text-right text-gray-300">${volFormatted}</td>
                         <td class="text-xs font-bold ${item.布林通道狀態?.includes('起漲') ? 'text-cyan-400' : 'text-gray-400'}">${item.布林通道狀態 || '--'}</td>
                     </tr>
                 `;
             }).join('');
         }
 
-        function sortData(column) {
-            if (currentSort.column === column) { currentSort.order = currentSort.order === 'asc' ? 'desc' : 'asc'; } 
-            else { currentSort.column = column; currentSort.order = 'desc'; }
-            
-            const modifier = currentSort.order === 'asc' ? 1 : -1;
-            currentDisplayData.sort((a, b) => {
-                let valA = a[column], valB = b[column];
-                if (column.includes('漲跌幅') || column === '最新價格' || column === 'raw_volume') {
-                    valA = parseFloat(String(valA).replace(/[%,]/g, '')) || 0;
-                    valB = parseFloat(String(valB).replace(/[%,]/g, '')) || 0;
+        // 技術核心：處理多重排序邏輯
+        function sortData(column, isInit = false) {
+            if (!isInit) {
+                if (currentSort.column === column) {
+                    currentSort.order = currentSort.order === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSort.column = column;
+                    currentSort.order = 'desc';
                 }
-                return (valA > valB ? 1 : -1) * modifier;
+            }
+
+            const modifier = currentSort.order === 'asc' ? 1 : -1;
+
+            currentDisplayData.sort((a, b) => {
+                let valA = parseValue(a[column]);
+                let valB = parseValue(b[column]);
+
+                // 1. 執行主要欄位排序
+                if (valA !== valB) {
+                    return (valA > valB ? 1 : -1) * modifier;
+                }
+
+                // 2. 二次技術排序：若主要欄位相同（常見於日期），則以成交量（raw_volume）降序排列
+                if (column === '觀察點日期') {
+                    let volA = parseValue(a['raw_volume']);
+                    let volB = parseValue(b['raw_volume']);
+                    return (volB - volA); // 降序：大交易量在前
+                }
+                return 0;
             });
-            
-            renderTable('table-body', currentDisplayData, false);
+
             updateSortIcons(column);
+            renderTable();
+        }
+
+        // 輔助函式：將字串轉為可比較數值
+        function parseValue(val) {
+            if (!val) return 0;
+            if (String(val).includes('-')) return new Date(val).getTime(); // 處理日期
+            return parseFloat(String(val).replace(/[%,]/g, '')) || 0; // 處理百分比、千分位
         }
 
         function updateSortIcons(column) {
@@ -167,14 +162,9 @@
             if (activeIcon) activeIcon.innerText = currentSort.order === 'asc' ? ' ▲' : ' ▼';
         }
 
-        function filterByStatus(status) {
-            currentDisplayData = primaryData.filter(d => d.布林通道狀態?.includes(status));
-            renderTable('table-body', currentDisplayData, false);
-        }
-
         function resetFilter() {
             currentDisplayData = [...primaryData];
-            renderTable('table-body', currentDisplayData, false);
+            sortData('觀察點日期', true);
         }
 
         window.onload = loadData;
