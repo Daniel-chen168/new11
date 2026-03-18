@@ -3,73 +3,77 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IKE 盤中監控系統 (當日推薦版)</title>
+    <title>IKE 盤中監控系統 (響應式細節版)</title>
+    
+    <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #0d1117; color: #c9d1d9; font-family: "微軟正黑體", sans-serif; }
-        .btn-blue { background-color: #1f6feb; border: 1px solid #388bfd; }
         .btn-cyan { background-color: #0891b2; border: 1px solid #22d3ee; }
         .btn-dark { background-color: #161b22; border: 1px solid #30363d; }
         .btn-debug { background-color: #9a6700; border: 1px solid #d29922; color: #f0e042; }
         
         table { border-collapse: collapse; width: 100%; margin-top: 10px; table-layout: fixed; }
-        th { background-color: #161b22; padding: 12px; border: 1px solid #30363d; font-size: 14px; position: relative; }
-        td { padding: 12px; border: 1px solid #30363d; text-align: center; font-size: 15px; }
+        th { background-color: #161b22; padding: 10px; border: 1px solid #30363d; font-size: 13px; }
+        td { padding: 10px; border: 1px solid #30363d; text-align: center; font-size: 14px; }
         .row-even { background-color: #11161d; }
         
-        /* 推薦清單專屬樣式 (黃金高亮) */
+        /* 推薦清單黃金高亮 */
         .table-recommend th { background-color: #3d2a00; border-color: #d29922; color: #e3b341; }
         .table-recommend td { border-color: #d29922; background-color: #1a1405; }
-        .table-recommend .row-even td { background-color: #241c08; }
 
-        /* 欄位寬度 */
-        .col-code { width: 75px; }
-        .col-name { width: 100px; }
-        .col-period { width: 85px; } 
-        .col-date { width: 110px; }
-        .col-status { width: 120px; }
+        /* 欄位寬度控制 */
+        .col-code { width: 70px; }
+        .col-name { width: 95px; }
+        @media (min-width: 768px) {
+            .col-code { width: 85px; }
+            .col-name { width: 115px; }
+        }
         
-        /* 漲跌幅顏色邏輯 */
         .text-up { color: #f85149; font-weight: bold; }
         .text-down { color: #3fb950; font-weight: bold; }
         .text-flat { color: #d29922; font-weight: bold; }
         
-        /* 排序游標與箭頭 */
         .sortable { cursor: pointer; transition: background 0.2s; }
         .sortable:hover { background-color: #21262d; }
-        .sort-icon { font-size: 12px; margin-left: 5px; color: #8b949e; }
+        .sort-icon { font-size: 11px; margin-left: 3px; color: #8b949e; }
         
-        /* 超連結樣式 */
-        .stock-link { text-decoration: none; transition: color 0.2s; display: block; width: 100%; height: 100%; }
-        .stock-link:hover { color: #58a6ff; text-decoration: underline; }
+        .status-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
+        .status-live { background-color: #065f46; color: #34d399; border: 1px solid #059669; }
+        .status-closed { background-color: #7f1d1d; color: #f87171; border: 1px solid #b91c1c; }
+
+        /* 展開動畫 */
+        .details-panel { transition: all 0.3s ease; }
     </style>
 </head>
-<body class="p-6">
+<body class="p-4 md:p-6">
 
-    <div class="flex justify-between items-center mb-6">
-        <h1 class="text-3xl font-bold">IKE 盤中監控系統 <span class="text-sm text-cyan-400">布林通道版</span></h1>
-        <div class="flex items-center gap-4">
-            <span class="text-xs text-gray-400" id="update-time">最後更新：讀取中...</span>
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+        <h1 class="text-2xl md:text-3xl font-bold">IKE 盤中監控 <span class="text-sm text-cyan-400 hidden md:inline">布林通道版</span></h1>
+        
+        <div class="w-full md:w-auto text-left md:text-right bg-gray-900/50 p-2 rounded-lg border border-gray-800">
+            <div class="flex flex-col items-start md:items-end">
+                <span class="text-xs text-gray-400" id="update-time">最後更新：讀取中...</span>
+                <div class="flex gap-3 text-[10px] text-gray-500 mt-1">
+                    <span id="busuanzi_container_site_pv" style="display:none">今日點閱：<span id="busuanzi_value_site_pv" class="text-cyan-500 font-bold">--</span> 次</span>
+                    <span id="busuanzi_container_site_uv" style="display:none">訪客人數：<span id="busuanzi_value_site_uv" class="text-green-500 font-bold">--</span> 人</span>
+                </div>
+            </div>
         </div>
     </div>
 
-    <div id="recommendation-section" class="mb-10 hidden">
-        <h2 class="text-xl font-bold text-yellow-500 mb-2 flex items-center">
-            <span class="mr-2">🌟</span> 當日印象派推薦 (二次篩選)
-        </h2>
+    <div id="recommendation-section" class="mb-10 hidden overflow-x-auto">
+        <h2 class="text-lg font-bold text-yellow-500 mb-2 flex items-center">🌟 當日印象派推薦 <span class="ml-2 text-[10px] text-gray-500 font-normal md:hidden">(點擊看細節)</span></h2>
         <table class="table-recommend">
             <thead>
                 <tr>
                     <th class="col-code">代碼</th>
                     <th class="col-name">名稱</th>
-                    <th>產業類別</th>
-                    <th class="col-period">觸發期間</th>
-                    <th class="col-date">觀察日期</th>
-                    <th>觀察價</th>
+                    <th class="hidden md:table-cell">期間</th>
                     <th>最新價</th>
                     <th>漲跌幅</th>
-                    <th>成交量</th>
-                    <th class="col-status">布林狀態</th>
+                    <th class="col-status">狀態</th>
                 </tr>
             </thead>
             <tbody id="recommend-body"></tbody>
@@ -78,137 +82,106 @@
 
     <hr class="border-gray-700 mb-6">
 
-    <div class="flex justify-between items-end mb-2">
-        <h2 class="text-xl font-bold text-cyan-400">📊 監控雷達 (一次篩選)</h2>
-        <div class="flex gap-2">
-            <button onclick="filterByStatus('起漲時刻')" class="btn-cyan px-3 py-1.5 rounded text-xs">篩選：起漲時刻</button>
-            <button onclick="filterByStatus('盤整')" class="btn-dark px-3 py-1.5 rounded text-xs">篩選：盤整</button>
-            <button onclick="resetFilter()" class="btn-debug px-3 py-1.5 rounded text-xs">顯示全部 (重置)</button>
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-4 gap-3">
+        <h2 class="text-lg font-bold text-cyan-400">📊 監控雷達 <span class="ml-2 text-[10px] text-gray-500 font-normal md:hidden">(點擊看細節)</span></h2>
+        <div class="flex gap-2 w-full md:w-auto">
+            <button onclick="filterByStatus('起漲時刻')" class="flex-1 md:flex-none btn-cyan px-2 py-1.5 rounded text-xs text-white">起漲</button>
+            <button onclick="filterByStatus('盤整')" class="flex-1 md:flex-none btn-dark px-2 py-1.5 rounded text-xs">盤整</button>
+            <button onclick="resetFilter()" class="flex-1 md:flex-none btn-debug px-2 py-1.5 rounded text-xs">重置</button>
         </div>
     </div>
 
-    <div id="status-message" class="text-center py-10 text-gray-400 hidden">
-        <span id="msg-text" class="text-xl">目前此時段無符合標的</span>
-    </div>
+    <div id="status-message" class="text-center py-10 text-gray-400 hidden">目前此時段無符合標的</div>
 
-    <table id="main-table">
-        <thead>
-            <tr>
-                <th class="col-code sortable" onclick="sortData('代碼')">代碼 <span class="sort-icon" id="icon-代碼"></span></th>
-                <th class="col-name sortable" onclick="sortData('名稱')">名稱 <span class="sort-icon" id="icon-名稱"></span></th>
-                <th class="sortable" onclick="sortData('類別')">產業類別 <span class="sort-icon" id="icon-類別"></span></th>
-                <th class="col-date sortable" onclick="sortData('觀察點日期')">觀察日期 <span class="sort-icon" id="icon-觀察點日期"></span></th>
-                <th class="sortable" onclick="sortData('觀察點價格')">觀察價 <span class="sort-icon" id="icon-觀察點價格"></span></th>
-                <th class="sortable" onclick="sortData('最新價格')">最新價 <span class="sort-icon" id="icon-最新價格"></span></th>
-                <th class="sortable" onclick="sortData('漲跌幅百分比')">漲跌幅 <span class="sort-icon" id="icon-漲跌幅百分比"></span></th>
-                <th class="sortable" onclick="sortData('raw_volume')">成交量 <span class="sort-icon" id="icon-raw_volume"></span></th>
-                <th class="col-status sortable" onclick="sortData('布林通道狀態')">布林狀態 <span class="sort-icon" id="icon-布林通道狀態"></span></th>
-            </tr>
-        </thead>
-        <tbody id="table-body"></tbody>
-    </table>
+    <div class="overflow-x-auto">
+        <table id="main-table">
+            <thead>
+                <tr>
+                    <th class="col-code sortable" onclick="sortData('代碼')">代碼 <span class="sort-icon" id="icon-代碼"></span></th>
+                    <th class="col-name sortable" onclick="sortData('名稱')">名稱 <span class="sort-icon" id="icon-名稱"></span></th>
+                    <th class="sortable" onclick="sortData('最新價格')">現價 <span class="sort-icon" id="icon-最新價格"></span></th>
+                    <th class="sortable" onclick="sortData('漲跌幅百分比')">漲跌幅 <span class="sort-icon" id="icon-漲跌幅百分比"></span></th>
+                    <th class="hidden md:table-cell sortable" onclick="sortData('raw_volume')">成交量 <span class="sort-icon" id="icon-raw_volume"></span></th>
+                    <th class="col-status sortable" onclick="sortData('布林通道狀態')">狀態 <span class="sort-icon" id="icon-布林通道狀態"></span></th>
+                </tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+        </table>
+    </div>
 
     <script>
         let recommendData = [];     
         let primaryData = [];       
         let currentDisplayData = [];
-        
         let currentSort = { column: '觀察點日期', order: 'desc' };
 
-        async function loadData() {
-            try {
-                const res = await fetch('./data.json'); 
-                if (!res.ok) throw new Error('無法讀取 data.json');
-                
-                const rawJson = await res.json();
-                document.getElementById('update-time').innerText = `系統更新時間：${rawJson.last_update || "未知"}`;
-                
-                if (rawJson.history && rawJson.history.length > 0) {
-                    primaryData = rawJson.history[0].primary_list || [];
-                    recommendData = rawJson.history[0].secondary_list || [];
-                    currentDisplayData = [...primaryData];
-                }
-                
-                renderRecommendTable();
-                sortData('觀察點日期', true);
-
-            } catch (err) {
-                console.error("載入失敗:", err);
-                document.getElementById('msg-text').innerHTML = `<span class="text-red-500">載入失敗: ${err.message}</span>`;
-                document.getElementById('status-message').classList.remove('hidden');
+        // 控制手機版展開細節
+        function toggleDetails(rowId) {
+            const detailsRow = document.getElementById(rowId);
+            if (detailsRow) {
+                detailsRow.classList.toggle('hidden');
             }
         }
 
-        // 🌟 生成 Yahoo 股市連結
-        function getYahooLink(code) {
-            return `https://tw.stock.yahoo.com/quote/${code}`;
+        async function loadData() {
+            try {
+                const res = await fetch(`./data.json?t=${new Date().getTime()}`); 
+                if (!res.ok) throw new Error('讀取失敗');
+                const rawJson = await res.json();
+                const lastUpdate = rawJson.last_update || "未知";
+                const updateHour = parseInt(lastUpdate.split(' ')[1]?.split(':')[0] || 0);
+                
+                let statusHtml = (updateHour >= 14 || updateHour < 9) ? 
+                    '<span class="status-badge status-closed">今日收盤</span>' : 
+                    '<span class="status-badge status-live animate-pulse">盤中監控</span>';
+                
+                document.getElementById('update-time').innerHTML = `最後更新：${lastUpdate} ${statusHtml}`;
+                
+                if (rawJson.history && rawJson.history.length > 0) {
+                    const latestRun = rawJson.history[0];
+                    primaryData = latestRun.primary_list || [];
+                    recommendData = latestRun.secondary_list || [];
+                    currentDisplayData = [...primaryData];
+                }
+                renderRecommendTable();
+                sortData('觀察點日期', true);
+            } catch (err) {
+                console.error(err);
+            }
         }
 
-        // 生成推薦列
-        function generateRecommendRows(dataList) {
+        function getYahooLink(code) { return `https://tw.stock.yahoo.com/quote/${code}`; }
+
+        function generateRows(dataList, isRecommend = false) {
             return dataList.map((item, index) => {
+                const rowId = `row-${isRecommend ? 'rec' : 'main'}-${item.代碼.replace('.', '_')}`;
                 const pctStr = item.漲跌幅百分比 || item.漲跌幅 || "0%"; 
                 const pctNum = parseFloat(pctStr.replace('%', ''));
-                let pctClass = 'text-flat';
-                if (pctNum > 0) pctClass = 'text-up';
-                else if (pctNum < 0) pctClass = 'text-down';
-
+                const pctClass = pctNum > 0 ? 'text-up' : (pctNum < 0 ? 'text-down' : 'text-flat');
                 const statusStr = item.布林通道狀態 || "--";
-                const statusColor = statusStr.includes('起漲') || statusStr.includes('飆股') ? 'text-cyan-400 font-bold' : 'text-gray-400';
+                const statusColor = (statusStr.includes('起漲') || statusStr.includes('飆股')) ? 'text-cyan-400 font-bold' : 'text-gray-400';
 
-                let periodBadge = '--';
-                if (item.期間 === '當日') {
-                    periodBadge = '<span class="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold shadow-md shadow-red-900/50">當日 T</span>';
-                } else if (item.期間 === '1日') {
-                    periodBadge = '<span class="bg-orange-500 text-white px-2 py-0.5 rounded text-xs font-bold shadow-md shadow-orange-900/50">1日前 T-1</span>';
-                } else if (item.期間 === '2日') {
-                    periodBadge = '<span class="bg-yellow-600 text-white px-2 py-0.5 rounded text-xs font-bold shadow-md shadow-yellow-900/50">2日前 T-2</span>';
-                } else if (item.期間) {
-                    periodBadge = `<span class="bg-gray-700 text-gray-300 px-2 py-0.5 rounded text-xs">${item.期間}</span>`;
-                }
-
-                // 加入 a 標籤超連結
                 return `
-                    <tr class="${index % 2 === 0 ? 'row-even' : ''}">
-                        <td class="col-code font-mono"><a href="${getYahooLink(item.代碼)}" target="_blank" class="stock-link text-blue-400">${item.代碼 || '--'}</a></td>
-                        <td class="col-name text-blue-300 font-bold"><a href="${getYahooLink(item.代碼)}" target="_blank" class="stock-link">${item.名稱 || '--'}</a></td>
-                        <td class="text-sm text-gray-400">${item.類別 || '--'}</td>
-                        <td>${periodBadge}</td>
-                        <td class="col-date text-sm text-yellow-300">${item.觀察點日期 || '--'}</td>
-                        <td class="text-gray-300">${item.觀察點價格 || '--'}</td>
-                        <td class="font-mono text-yellow-500">${item.最新價格 || '--'}</td>
-                        <td class="${pctClass}">${pctStr}</td>
-                        <td class="text-gray-300">${item.成交量 || item.當日成交量 || '--'}</td>
-                        <td class="${statusColor}">${statusStr}</td>
+                    <tr class="${index % 2 === 0 ? 'row-even' : ''} cursor-pointer hover:bg-gray-800" onclick="toggleDetails('${rowId}')">
+                        <td class="col-code font-mono text-sm"><a href="${getYahooLink(item.代碼)}" target="_blank" onclick="event.stopPropagation()" class="text-blue-400">${item.代碼}</a></td>
+                        <td class="col-name text-blue-300 font-bold text-sm">${item.名稱}</td>
+                        ${isRecommend ? `<td class="hidden md:table-cell text-xs text-orange-400">${item.期間 || '--'}</td>` : ''}
+                        <td class="font-mono text-yellow-500">${item.最新價格}</td>
+                        <td class="${pctClass} text-sm">${pctStr}</td>
+                        <td class="hidden md:table-cell text-xs text-gray-400">${item.成交量 || '--'}</td>
+                        <td class="text-xs ${statusColor}">${statusStr}</td>
                     </tr>
-                `;
-            }).join('');
-        }
-
-        // 生成主列
-        function generateMainRows(dataList) {
-            return dataList.map((item, index) => {
-                const pctStr = item.漲跌幅百分比 || "0%";
-                const pctNum = parseFloat(pctStr.replace('%', ''));
-                let pctClass = 'text-flat';
-                if (pctNum > 0) pctClass = 'text-up';
-                else if (pctNum < 0) pctClass = 'text-down';
-
-                const statusStr = item.布林通道狀態 || "--";
-                const statusColor = statusStr.includes('起漲') || statusStr.includes('飆股') ? 'text-cyan-400 font-bold' : 'text-gray-400';
-
-                // 加入 a 標籤超連結
-                return `
-                    <tr class="${index % 2 === 0 ? 'row-even' : ''}">
-                        <td class="col-code font-mono"><a href="${getYahooLink(item.代碼)}" target="_blank" class="stock-link text-blue-400">${item.代碼 || '--'}</a></td>
-                        <td class="col-name text-blue-300 font-bold"><a href="${getYahooLink(item.代碼)}" target="_blank" class="stock-link">${item.名稱 || '--'}</a></td>
-                        <td class="text-sm text-gray-400">${item.類別 || '--'}</td>
-                        <td class="col-date text-sm text-yellow-300">${item.觀察點日期 || '--'}</td>
-                        <td class="text-gray-300">${item.觀察點價格 || '--'}</td>
-                        <td class="font-mono text-yellow-500">${item.最新價格 || '--'}</td>
-                        <td class="${pctClass}">${item.漲跌幅百分比 || '--'}</td>
-                        <td class="text-gray-300">${item.成交量 || '--'}</td>
-                        <td class="${statusColor}">${statusStr}</td>
+                    <tr id="${rowId}" class="hidden bg-slate-900 border-l-4 border-cyan-500">
+                        <td colspan="6" class="p-4 text-left text-xs space-y-2">
+                            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                <div><span class="text-gray-500">產業類別：</span>${item.類別 || '--'}</div>
+                                <div><span class="text-gray-500">觀察日期：</span>${item.觀察點日期 || '--'}</div>
+                                <div><span class="text-gray-500">觀察價格：</span>${item.觀察點價格 || '--'}</div>
+                                <div><span class="text-gray-500">成交張數：</span>${item.成交量 || '--'}</div>
+                                <div><span class="text-gray-500">ATR：</span>${item.ATR || '--'}</div>
+                                <div><span class="text-gray-500">標準差：</span>${item.標準差 || '--'}</div>
+                            </div>
+                        </td>
                     </tr>
                 `;
             }).join('');
@@ -217,18 +190,9 @@
         function renderRecommendTable() {
             const secSection = document.getElementById('recommendation-section');
             const tbody = document.getElementById('recommend-body');
-            
             if (recommendData && recommendData.length > 0) {
-                recommendData.sort((a, b) => {
-                    const periodOrder = { '當日': 1, '1日': 2, '2日': 3 };
-                    const orderA = periodOrder[a.期間] || 99;
-                    const orderB = periodOrder[b.期間] || 99;
-                    if (orderA !== orderB) return orderA - orderB; 
-                    return (b.raw_volume || 0) - (a.raw_volume || 0);
-                });
-
                 secSection.classList.remove('hidden');
-                tbody.innerHTML = generateRecommendRows(recommendData);
+                tbody.innerHTML = generateRows(recommendData, true);
             } else {
                 secSection.classList.add('hidden');
             }
@@ -238,64 +202,33 @@
             const tbody = document.getElementById('table-body');
             const msgBox = document.getElementById('status-message');
             const table = document.getElementById('main-table');
-
             if (currentDisplayData.length === 0) {
-                msgBox.classList.remove('hidden');
-                table.classList.add('hidden');
+                msgBox.classList.remove('hidden'); table.classList.add('hidden');
             } else {
-                msgBox.classList.add('hidden');
-                table.classList.remove('hidden');
-                tbody.innerHTML = generateMainRows(currentDisplayData);
+                msgBox.classList.add('hidden'); table.classList.remove('hidden');
+                tbody.innerHTML = generateRows(currentDisplayData, false);
             }
         }
 
         function sortData(column, isInit = false) {
             if (!isInit) {
-                if (currentSort.column === column) {
-                    currentSort.order = currentSort.order === 'asc' ? 'desc' : 'asc';
-                } else {
-                    currentSort.column = column;
-                    currentSort.order = 'desc'; 
-                }
+                if (currentSort.column === column) { currentSort.order = currentSort.order === 'asc' ? 'desc' : 'asc'; } 
+                else { currentSort.column = column; currentSort.order = 'desc'; }
             }
-
             const modifier = currentSort.order === 'asc' ? 1 : -1;
-
             currentDisplayData.sort((a, b) => {
-                let valA = a[column] === undefined ? '' : String(a[column]);
-                let valB = b[column] === undefined ? '' : String(b[column]);
-                let diff = 0;
-
-                const isNumericCol = ['觀察點價格', '最新價格', '漲跌幅百分比', 'raw_volume'].includes(column);
-
-                if (isNumericCol) {
-                    let numA = parseFloat(valA.replace(/,/g, '').replace('%', '')) || 0;
-                    let numB = parseFloat(valB.replace(/,/g, '').replace('%', '')) || 0;
-                    diff = (numA - numB) * modifier;
-                } else {
-                    diff = valA.localeCompare(valB) * modifier;
-                }
-
-                if (diff === 0) {
-                    let volA = parseFloat(a['raw_volume']) || 0;
-                    let volB = parseFloat(b['raw_volume']) || 0;
-                    return volB - volA; 
-                }
-
-                return diff;
+                let numA = parseFloat(String(a[column]).replace('%', '')) || 0;
+                let numB = parseFloat(String(b[column]).replace('%', '')) || 0;
+                return (numA - numB) * modifier;
             });
-
             document.querySelectorAll('.sort-icon').forEach(icon => icon.innerText = '');
             const activeIcon = document.getElementById(`icon-${column}`);
-            if (activeIcon) {
-                activeIcon.innerText = currentSort.order === 'asc' ? '▲' : '▼';
-            }
-
+            if (activeIcon) activeIcon.innerText = currentSort.order === 'asc' ? '▲' : '▼';
             renderMainTable();
         }
 
-        function filterByStatus(statusName) {
-            currentDisplayData = primaryData.filter(d => d.布林通道狀態 && d.布林通道狀態.includes(statusName));
+        function filterByStatus(status) {
+            currentDisplayData = primaryData.filter(d => d.布林通道狀態?.includes(status));
             sortData(currentSort.column, true); 
         }
 
