@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IKE 盤中監控系統 - 完整功能版</title>
+    <title>IKE 盤中監控系統 - 完整版</title>
     <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -16,7 +16,11 @@
         td { padding: 12px 8px; border: 1px solid #30363d; text-align: center; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .row-even { background-color: #11161d; }
         
-        /* 欄位寬度微調 */
+        /* 推薦清單黃金高亮樣式 */
+        .table-recommend th { background-color: #3d2a00; border-color: #d29922; color: #e3b341; }
+        .table-recommend td { border-color: #d29922; background-color: #1a1405; }
+
+        /* 欄位寬度控制 */
         .col-code { width: 85px; }
         .col-name { width: 110px; }
         .col-date { width: 120px; }
@@ -34,7 +38,7 @@
 
     <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <div>
-            <h1 class="text-2xl md:text-3xl font-bold">IKE 盤中監控 <span class="text-sm text-cyan-400">核心技術版</span></h1>
+            <h1 class="text-2xl md:text-3xl font-bold">IKE 盤中監控 <span class="text-sm text-cyan-400">IKE_TOOL 核心版</span></h1>
             <div class="flex gap-4 mt-2 text-[11px] text-gray-500">
                 <span id="busuanzi_container_site_pv" style="display:none">今日點閱：<span id="busuanzi_value_site_pv" class="text-cyan-500 font-bold">--</span> 次</span>
                 <span id="busuanzi_container_site_uv" style="display:none">訪客人數：<span id="busuanzi_value_site_uv" class="text-green-500 font-bold">--</span> 人</span>
@@ -45,12 +49,30 @@
         </div>
     </div>
 
+    <div id="recommendation-section" class="mb-10 hidden overflow-x-auto">
+        <h2 class="text-lg font-bold text-yellow-500 mb-2 flex items-center">🌟 當日印象派推薦</h2>
+        <table class="table-recommend">
+            <thead>
+                <tr>
+                    <th class="col-code">代碼</th>
+                    <th class="col-name">名稱</th>
+                    <th class="col-date">期間</th>
+                    <th>現價</th>
+                    <th>漲跌幅</th>
+                    <th>成交量</th>
+                    <th>狀態</th>
+                </tr>
+            </thead>
+            <tbody id="recommend-body"></tbody>
+        </table>
+    </div>
+
+    <hr class="border-gray-700 mb-8">
+
     <div class="flex justify-between items-end mb-4 gap-3">
-        <h2 class="text-lg font-bold text-cyan-400 flex items-center">📊 監控雷達 
-            <span class="ml-2 text-[10px] text-gray-500 font-normal">(日期同則比對量能)</span>
-        </h2>
+        <h2 class="text-lg font-bold text-cyan-400">📊 監控雷達</h2>
         <div class="flex gap-2">
-            <button onclick="sortData('觀察點日期')" class="btn-cyan px-3 py-1.5 rounded text-xs text-white">按日期排序</button>
+            <button onclick="sortData('觀察點日期')" class="btn-cyan px-3 py-1.5 rounded text-xs text-white">日期排序</button>
             <button onclick="resetFilter()" class="btn-debug px-3 py-1.5 rounded text-xs">重置視圖</button>
         </div>
     </div>
@@ -73,6 +95,7 @@
     </div>
 
     <script>
+        let recommendData = [];     
         let primaryData = [];       
         let currentDisplayData = [];
         let currentSort = { column: '觀察點日期', order: 'desc' };
@@ -84,27 +107,36 @@
                 document.getElementById('update-time').innerText = `最後更新：${rawJson.last_update || "未知"}`;
                 
                 if (rawJson.history && rawJson.history.length > 0) {
-                    primaryData = rawJson.history[0].primary_list || [];
+                    const latestRun = rawJson.history[0];
+                    primaryData = latestRun.primary_list || [];
+                    recommendData = latestRun.secondary_list || [];
                     currentDisplayData = [...primaryData];
                 }
-                // 初始執行：日期(主) + 成交量(副) 排序
+                
+                // 渲染兩個表格
+                renderTable('recommend-body', recommendData);
+                if (recommendData.length > 0) document.getElementById('recommendation-section').classList.remove('hidden');
+                
                 sortData('觀察點日期', true);
-            } catch (err) { console.error("Data Load Error", err); }
+            } catch (err) { console.error("Load Error", err); }
         }
 
-        function renderTable() {
-            const tbody = document.getElementById('table-body');
-            tbody.innerHTML = currentDisplayData.map((item, index) => {
+        function renderTable(targetId, dataList) {
+            const tbody = document.getElementById(targetId);
+            tbody.innerHTML = dataList.map((item, index) => {
                 const pctStr = item.漲跌幅百分比 || item.漲跌幅 || "0%"; 
                 const pctNum = parseFloat(pctStr.replace('%', ''));
                 const pctClass = pctNum > 0 ? 'text-up' : (pctNum < 0 ? 'text-down' : 'text-flat');
                 const volFormatted = item.成交量 ? String(item.成交量).replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "--";
+                
+                // 處理日期/期間欄位
+                const dateInfo = item.期間 || item.觀察點日期 || '--';
 
                 return `
                     <tr class="${index % 2 === 0 ? 'row-even' : ''} hover:bg-gray-800 transition-all">
                         <td class="font-mono text-blue-400"><a href="https://tw.stock.yahoo.com/quote/${item.代碼}" target="_blank">${item.代碼}</a></td>
                         <td class="text-blue-200 font-bold">${item.名稱}</td>
-                        <td class="text-gray-400 text-sm">${item.觀察點日期 || '--'}</td>
+                        <td class="text-gray-400 text-sm">${dateInfo}</td>
                         <td class="font-mono text-yellow-500">${item.最新價格}</td>
                         <td class="${pctClass}">${pctStr}</td>
                         <td class="font-mono text-right text-gray-300">${volFormatted}</td>
@@ -114,7 +146,6 @@
             }).join('');
         }
 
-        // 技術核心：處理多重排序邏輯
         function sortData(column, isInit = false) {
             if (!isInit) {
                 if (currentSort.column === column) {
@@ -124,36 +155,28 @@
                     currentSort.order = 'desc';
                 }
             }
-
             const modifier = currentSort.order === 'asc' ? 1 : -1;
 
             currentDisplayData.sort((a, b) => {
                 let valA = parseValue(a[column]);
                 let valB = parseValue(b[column]);
+                if (valA !== valB) return (valA > valB ? 1 : -1) * modifier;
 
-                // 1. 執行主要欄位排序
-                if (valA !== valB) {
-                    return (valA > valB ? 1 : -1) * modifier;
-                }
-
-                // 2. 二次技術排序：若主要欄位相同（常見於日期），則以成交量（raw_volume）降序排列
+                // 二次排序：日期相同比成交量
                 if (column === '觀察點日期') {
-                    let volA = parseValue(a['raw_volume']);
-                    let volB = parseValue(b['raw_volume']);
-                    return (volB - volA); // 降序：大交易量在前
+                    return (parseValue(b['raw_volume']) - parseValue(a['raw_volume']));
                 }
                 return 0;
             });
 
             updateSortIcons(column);
-            renderTable();
+            renderTable('table-body', currentDisplayData);
         }
 
-        // 輔助函式：將字串轉為可比較數值
         function parseValue(val) {
             if (!val) return 0;
-            if (String(val).includes('-')) return new Date(val).getTime(); // 處理日期
-            return parseFloat(String(val).replace(/[%,]/g, '')) || 0; // 處理百分比、千分位
+            if (String(val).includes('-')) return new Date(val).getTime();
+            return parseFloat(String(val).replace(/[%,]/g, '')) || 0;
         }
 
         function updateSortIcons(column) {
