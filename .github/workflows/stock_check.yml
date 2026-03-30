@@ -1,13 +1,7 @@
 name: IKE_TOOL Scheduled Analysis
 
 on:
-  schedule:
-    # 台北 09:37, 10:37, 11:37, 12:37
-    - cron: '37 1,2,3,4 * * 1-5'
-    
-    # 台北 13:07
-    - cron: '7 5 * * 1-5'
-  
+  # 🌟 已經將內建的 schedule 刪除，只保留這個，專心讓 cron-job.org 呼叫
   workflow_dispatch:
 
 jobs:
