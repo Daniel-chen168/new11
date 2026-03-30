@@ -16,7 +16,6 @@
         .text-up { color: #f85149; font-weight: bold; }
         .text-down { color: #3fb950; font-weight: bold; }
         .disclaimer { background-color: #1c1111; border: 1px dashed #f85149; color: #f85149; }
-        /* 下拉選單樣式優化 */
         select { outline: none; transition: border 0.3s; }
         select:focus { border-color: #22d3ee; }
         @media (max-width: 768px) { .hide-mobile { display: none; } }
@@ -39,7 +38,7 @@
                 <div class="flex items-center">
                     <span class="text-[11px] text-gray-500 mr-1">歷史回溯:</span>
                     <select id="history-select" onchange="changeHistory(this.value)" class="bg-[#0d1117] border border-cyan-800 text-cyan-400 text-xs p-1 rounded">
-                        <option value="0">最新數據載入中...</option>
+                        <option value="0">載入中...</option>
                     </select>
                 </div>
 
@@ -98,42 +97,39 @@
     </footer>
 
     <script>
-        let fullHistory = []; // 儲存完整的 50 筆紀錄
+        let fullHistory = []; 
         let primaryData = [], recommendData = [];
         let sortState = { main: { col: '觀察點日期', dir: 'desc' }, rec: { col: '期間', dir: 'asc' } };
 
         async function loadData() {
             try {
-                const res = await fetch(`./docs/data.json?t=${new Date().getTime()}`);
+                // 🌟 修正點：路徑改回 ./data.json
+                const res = await fetch(`./data.json?t=${new Date().getTime()}`);
+                if (!res.ok) throw new Error("找不到資料檔");
                 const json = await res.json();
                 
-                // 1. 處理歷史紀錄選單
                 if (json.history && json.history.length > 0) {
                     fullHistory = json.history;
                     const select = document.getElementById('history-select');
-                    select.innerHTML = ''; // 清空載入中文字
+                    select.innerHTML = ''; 
                     
                     fullHistory.forEach((record, index) => {
                         const opt = document.createElement('option');
                         opt.value = index;
-                        // 格式化顯示：03-31 13:30
                         const shortDate = record.date.substring(5);
                         opt.textContent = `${shortDate} ${record.time}`;
                         select.appendChild(opt);
                     });
-
-                    // 預設載入第一筆 (最新的)
                     displayRecord(0);
                 } else {
                     document.getElementById('update-time').innerText = "暫無歷史數據";
                 }
             } catch (e) { 
                 console.error("資料載入失敗:", e); 
-                document.getElementById('update-time').innerText = "資料載入失敗";
+                document.getElementById('update-time').innerText = "資料載入失敗 (404)";
             }
         }
 
-        // 🌟 切換歷史紀錄
         function changeHistory(index) {
             displayRecord(parseInt(index));
         }
@@ -146,11 +142,9 @@
             primaryData = record.primary_list || [];
             recommendData = record.secondary_list || [];
 
-            // 重新排序並渲染
             executeSort('rec', '期間', 'asc');
             executeSort('main', '觀察點日期', 'desc');
 
-            // 處理推薦區域顯示
             const recSection = document.getElementById('recommendation-section');
             if(recommendData.length > 0) {
                 recSection.classList.remove('hidden');
@@ -174,8 +168,6 @@
             sortState[type] = { col, dir };
             let targetList = type === 'main' ? primaryData : recommendData;
             const weights = { "當日": 1, "1日": 2, "2日": 3 };
-
-            // 複製一份資料避免污染原始數據
             let sortedList = [...targetList];
 
             sortedList.sort((a, b) => {
@@ -184,10 +176,9 @@
                     const wA = weights[valA] || (isNaN(Date.parse(valA)) ? 99 : new Date(valA).getTime());
                     const wB = weights[valB] || (isNaN(Date.parse(valB)) ? 99 : new Date(valB).getTime());
                     if (wA !== wB) return dir === 'asc' ? wA - wB : wB - wA;
-                    // 二次排序：成交量 永遠大到小
-                    const volA = parseFloat(String(a.成交量 || 0).replace(/,/g, '')) || 0;
-                    const volB = parseFloat(String(b.成交量 || 0).replace(/,/g, '')) || 0;
-                    return volB - volA;
+                    const vA = parseFloat(String(a.成交量 || 0).replace(/,/g, '')) || 0;
+                    const vB = parseFloat(String(b.成交量 || 0).replace(/,/g, '')) || 0;
+                    return vB - vA;
                 }
                 let numA = parseFloat(String(valA || 0).replace(/[%,]/g, '')) || 0;
                 let numB = parseFloat(String(valB || 0).replace(/[%,]/g, '')) || 0;
@@ -202,7 +193,6 @@
                 tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-gray-600 italic">此時段無符合條件標的</td></tr>`;
                 return;
             }
-
             tbody.innerHTML = list.map((item, i) => {
                 const detailId = `detail-${type}-${i}`;
                 const pct = item.漲跌幅百分比 || item.漲跌幅 || "0%";
