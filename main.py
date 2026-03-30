@@ -41,11 +41,11 @@ def run_headless_analysis():
     
     start_total_time = time.time()
     
-    # 🌟 修正 1：在程式「一啟動」時就先記下觸發時間 (例如 13:30)，而不是等跑完才記
+    # 🌟 修正 1：在程式「一啟動」時就先記下觸發時間 (例如 13:30)
     trigger_time = datetime.now(TAIPEI_TZ)
     
     logging.info("==========================================")
-    logging.info("🚀 啟動 IKE_TOOL 自動分析流程 (修正 JSON 與時間卡死版)")
+    logging.info("🚀 啟動 IKE_TOOL 自動分析流程 (50筆滾動歷史版)")
     logging.info(f"📅 觸發時間: {trigger_time.strftime('%Y-%m-%d %H:%M:%S')}")
     logging.info("==========================================")
 
@@ -94,15 +94,13 @@ def run_headless_analysis():
     secondary_list.sort(key=lambda x: x.get("raw_volume", 0), reverse=True)
     logging.info(f"🔥 二次篩選完成: {len(secondary_list)} 檔")
 
-    # --- 步驟 5: 產出 JSON ---
+    # --- 步驟 5: 產出 JSON (滾動式 50 筆歷史) ---
     logging.info("💾 步驟 5/5: 正在更新 docs/data.json...")
     json_path = os.path.join(DOCS_DIR, "data.json")
-    
-    # 紀錄程式跑完的當下時間 (這會放在 last_update 顯示實際完工時間)
     finish_time = datetime.now(TAIPEI_TZ)
     
     current_record = {
-        "time": trigger_time.strftime("%H:%M"), # 使用一開始的觸發時間 (13:30)
+        "time": trigger_time.strftime("%H:%M"), 
         "date": trigger_time.strftime("%Y-%m-%d"),
         "primary_count": len(primary_list),
         "secondary_count": len(secondary_list),
@@ -110,6 +108,7 @@ def run_headless_analysis():
         "secondary_list": secondary_list
     }
 
+    # 初始化結構，確保讀取失敗時有預設值
     full_data = {"last_update": "", "history": [], "recommendations": []}
 
     if os.path.exists(json_path):
@@ -117,27 +116,37 @@ def run_headless_analysis():
             with open(json_path, "r", encoding="utf-8") as f:
                 content = json.load(f)
                 if isinstance(content, dict):
-                    full_data.update(content)
-                    if "history" not in full_data: full_data["history"] = []
-                # 隔日重置歷史
-                if full_data["history"] and full_data["history"][0].get("date") != current_record["date"]:
-                    full_data["history"] = []
-        except: pass
+                    # 繼承舊資料，但排除掉 recommendations (由本次掃描決定)
+                    if "history" in content:
+                        full_data["history"] = content["history"]
+                    if "last_update" in content:
+                        full_data["last_update"] = content["last_update"]
+                    
+            # 🌟 關鍵改動：刪除了「隔日重置歷史」的程式碼塊
+            # 這樣資料就會一直累積下去，直到超過 50 筆
+            
+        except Exception as e:
+            logging.error(f"讀取舊 JSON 失敗: {e}，將初始化新檔案。")
 
-    # 🌟 修正 2：改用 insert(0, ...)！確保最新的資料永遠塞在最前面 (history[0])
+    # 🌟 將最新一筆資料塞在最前面 (history[0])
     full_data["history"].insert(0, current_record)
     
-    # 加入保護機制，避免 history 無限變長導致網頁載入變慢 (最多留 10 筆)
-    if len(full_data["history"]) > 10:
-        full_data["history"] = full_data["history"][:10]
+    # 🌟 設定上限為 50 筆 (約可存兩週的盤中紀錄)
+    if len(full_data["history"]) > 50:
+        logging.info("歷史紀錄超過 50 筆，移除最舊的一筆。")
+        full_data["history"] = full_data["history"][:50]
 
+    # 更新全域資訊
     full_data["last_update"] = finish_time.strftime("%Y-%m-%d %H:%M:%S")
     full_data["recommendations"] = secondary_list 
 
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(full_data, f, ensure_ascii=False, indent=4, cls=StockJSONEncoder)
-    
-    logging.info(f"✨ 任務結束！耗時 {finish_time - trigger_time}，數據已儲存至 {json_path}")
+    # 寫入檔案
+    try:
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(full_data, f, ensure_ascii=False, indent=4, cls=StockJSONEncoder)
+        logging.info(f"✨ 任務結束！耗時 {finish_time - trigger_time}，歷史紀錄總數: {len(full_data['history'])}")
+    except Exception as e:
+        logging.error(f"寫入 JSON 失敗: {e}")
 
 if __name__ == "__main__":
     run_headless_analysis()
