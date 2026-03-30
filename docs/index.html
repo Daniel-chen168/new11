@@ -16,6 +16,9 @@
         .text-up { color: #f85149; font-weight: bold; }
         .text-down { color: #3fb950; font-weight: bold; }
         .disclaimer { background-color: #1c1111; border: 1px dashed #f85149; color: #f85149; }
+        /* 下拉選單樣式優化 */
+        select { outline: none; transition: border 0.3s; }
+        select:focus { border-color: #22d3ee; }
         @media (max-width: 768px) { .hide-mobile { display: none; } }
     </style>
 </head>
@@ -29,13 +32,23 @@
                 <span id="busuanzi_container_site_uv" style="display:none">訪客：<span id="busuanzi_value_site_uv" class="text-green-500 font-bold">--</span></span>
             </div>
         </div>
-        <div class="flex flex-col items-end">
-            <span class="text-[10px] text-gray-400 mb-1" id="update-time">最後更新：讀取中...</span>
-            <select id="quick-sort" onchange="applyQuickSort(this.value)" class="bg-[#161b22] border border-gray-700 text-xs p-1 rounded">
-                <option value="觀察點日期-desc">預設 (期間+量能)</option>
-                <option value="成交量-desc">成交量 (大➔小)</option>
-                <option value="漲跌幅百分比-desc">漲跌幅 (高➔低)</option>
-            </select>
+        <div class="flex flex-col items-end gap-2">
+            <span class="text-[10px] text-gray-400" id="update-time">最後更新：讀取中...</span>
+            
+            <div class="flex gap-2">
+                <div class="flex items-center">
+                    <span class="text-[11px] text-gray-500 mr-1">歷史回溯:</span>
+                    <select id="history-select" onchange="changeHistory(this.value)" class="bg-[#0d1117] border border-cyan-800 text-cyan-400 text-xs p-1 rounded">
+                        <option value="0">最新數據載入中...</option>
+                    </select>
+                </div>
+
+                <select id="quick-sort" onchange="applyQuickSort(this.value)" class="bg-[#161b22] border border-gray-700 text-xs p-1 rounded">
+                    <option value="觀察點日期-desc">預設 (期間+量能)</option>
+                    <option value="成交量-desc">成交量 (大➔小)</option>
+                    <option value="漲跌幅百分比-desc">漲跌幅 (高➔低)</option>
+                </select>
+            </div>
         </div>
     </div>
 
@@ -85,22 +98,65 @@
     </footer>
 
     <script>
+        let fullHistory = []; // 儲存完整的 50 筆紀錄
         let primaryData = [], recommendData = [];
         let sortState = { main: { col: '觀察點日期', dir: 'desc' }, rec: { col: '期間', dir: 'asc' } };
 
         async function loadData() {
             try {
-                const res = await fetch(`./data.json?t=${new Date().getTime()}`);
+                const res = await fetch(`./docs/data.json?t=${new Date().getTime()}`);
                 const json = await res.json();
-                document.getElementById('update-time').innerText = `更新：${json.last_update || "未知"}`;
-                if (json.history) {
-                    primaryData = json.history[0].primary_list || [];
-                    recommendData = json.history[0].secondary_list || [];
+                
+                // 1. 處理歷史紀錄選單
+                if (json.history && json.history.length > 0) {
+                    fullHistory = json.history;
+                    const select = document.getElementById('history-select');
+                    select.innerHTML = ''; // 清空載入中文字
+                    
+                    fullHistory.forEach((record, index) => {
+                        const opt = document.createElement('option');
+                        opt.value = index;
+                        // 格式化顯示：03-31 13:30
+                        const shortDate = record.date.substring(5);
+                        opt.textContent = `${shortDate} ${record.time}`;
+                        select.appendChild(opt);
+                    });
+
+                    // 預設載入第一筆 (最新的)
+                    displayRecord(0);
+                } else {
+                    document.getElementById('update-time').innerText = "暫無歷史數據";
                 }
-                executeSort('rec', '期間', 'asc');
-                executeSort('main', '觀察點日期', 'desc');
-                if(recommendData.length > 0) document.getElementById('recommendation-section').classList.remove('hidden');
-            } catch (e) { console.error(e); }
+            } catch (e) { 
+                console.error("資料載入失敗:", e); 
+                document.getElementById('update-time').innerText = "資料載入失敗";
+            }
+        }
+
+        // 🌟 切換歷史紀錄
+        function changeHistory(index) {
+            displayRecord(parseInt(index));
+        }
+
+        function displayRecord(index) {
+            const record = fullHistory[index];
+            if (!record) return;
+
+            document.getElementById('update-time').innerText = `紀錄時間：${record.date} ${record.time}`;
+            primaryData = record.primary_list || [];
+            recommendData = record.secondary_list || [];
+
+            // 重新排序並渲染
+            executeSort('rec', '期間', 'asc');
+            executeSort('main', '觀察點日期', 'desc');
+
+            // 處理推薦區域顯示
+            const recSection = document.getElementById('recommendation-section');
+            if(recommendData.length > 0) {
+                recSection.classList.remove('hidden');
+            } else {
+                recSection.classList.add('hidden');
+            }
         }
 
         function sortData(col, type) {
@@ -119,37 +175,47 @@
             let targetList = type === 'main' ? primaryData : recommendData;
             const weights = { "當日": 1, "1日": 2, "2日": 3 };
 
-            targetList.sort((a, b) => {
+            // 複製一份資料避免污染原始數據
+            let sortedList = [...targetList];
+
+            sortedList.sort((a, b) => {
                 let valA = a[col], valB = b[col];
                 if (col === '期間' || col === '觀察點日期') {
                     const wA = weights[valA] || (isNaN(Date.parse(valA)) ? 99 : new Date(valA).getTime());
                     const wB = weights[valB] || (isNaN(Date.parse(valB)) ? 99 : new Date(valB).getTime());
                     if (wA !== wB) return dir === 'asc' ? wA - wB : wB - wA;
                     // 二次排序：成交量 永遠大到小
-                    return (parseFloat(String(b.成交量).replace(/,/g, '')) || 0) - (parseFloat(String(a.成交量).replace(/,/g, '')) || 0);
+                    const volA = parseFloat(String(a.成交量 || 0).replace(/,/g, '')) || 0;
+                    const volB = parseFloat(String(b.成交量 || 0).replace(/,/g, '')) || 0;
+                    return volB - volA;
                 }
-                let numA = parseFloat(String(valA).replace(/[%,]/g, '')) || 0;
-                let numB = parseFloat(String(valB).replace(/[%,]/g, '')) || 0;
+                let numA = parseFloat(String(valA || 0).replace(/[%,]/g, '')) || 0;
+                let numB = parseFloat(String(valB || 0).replace(/[%,]/g, '')) || 0;
                 return dir === 'asc' ? numA - numB : numB - numA;
             });
-            renderTable(type === 'main' ? 'table-body' : 'recommend-body', targetList, type);
+            renderTable(type === 'main' ? 'table-body' : 'recommend-body', sortedList, type);
         }
 
         function renderTable(targetId, list, type) {
             const tbody = document.getElementById(targetId);
+            if (!list || list.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-gray-600 italic">此時段無符合條件標的</td></tr>`;
+                return;
+            }
+
             tbody.innerHTML = list.map((item, i) => {
                 const detailId = `detail-${type}-${i}`;
                 const pct = item.漲跌幅百分比 || item.漲跌幅 || "0%";
                 const vol = item.成交量 ? String(item.成交量).replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "--";
                 return `
-                    <tr class="${i % 2 === 0 ? 'row-even' : ''} hover:bg-gray-800 cursor-pointer" onclick="document.getElementById('${detailId}').classList.toggle('hidden')">
+                    <tr class="hover:bg-gray-800 cursor-pointer border-b border-gray-800/50" onclick="document.getElementById('${detailId}').classList.toggle('hidden')">
                         <td class="text-blue-400 font-mono text-xs">${item.代碼}</td>
                         <td class="text-blue-200 font-bold text-xs">${item.名稱}</td>
                         <td class="text-gray-400 text-xs">${item.期間 || item.觀察點日期 || '--'}</td>
                         <td class="text-yellow-500 font-mono">${item.最新價格 || item.現價}</td>
                         <td class="${parseFloat(pct) > 0 ? 'text-up' : (parseFloat(pct) < 0 ? 'text-down' : '')}">${pct}</td>
                         <td class="text-right text-gray-300 font-mono px-2">${vol}</td>
-                        <td class="hide-mobile text-xs ${item.布林通道狀態?.includes('起漲') ? 'text-cyan-400 font-bold' : 'text-gray-400'}">${item.布林通道狀態 || item.狀態 || '--'}</td>
+                        <td class="hide-mobile text-xs ${String(item.布林通道狀態 || item.狀態).includes('起漲') ? 'text-cyan-400 font-bold' : 'text-gray-400'}">${item.布林通道狀態 || item.狀態 || '--'}</td>
                     </tr>
                     <tr id="${detailId}" class="hidden bg-[#0d1117] border-l-4 border-cyan-500">
                         <td colspan="7" class="p-4 text-left text-xs bg-slate-900/50">
