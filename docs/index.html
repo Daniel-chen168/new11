@@ -2,98 +2,123 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>IKE 盤中監控系統 - 專業研究版</title>
     <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background-color: #0d1117; color: #c9d1d9; font-family: "微軟正黑體", sans-serif; }
-        table { border-collapse: collapse; width: 100%; table-layout: fixed; }
-        th { background-color: #161b22; padding: 12px 4px; border: 1px solid #30363d; font-size: 13px; color: #8b949e; cursor: pointer; }
-        td { padding: 12px 4px; border: 1px solid #30363d; text-align: center; font-size: 14px; }
+        body { background-color: #0d1117; color: #c9d1d9; font-family: "微軟正黑體", -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+        
+        /* 表格基礎樣式 */
+        table { border-collapse: collapse; width: 100%; min-width: 340px; }
+        th { background-color: #161b22; padding: 10px 4px; border: 1px solid #30363d; font-size: 12px; color: #8b949e; }
+        td { padding: 10px 4px; border: 1px solid #30363d; text-align: center; font-size: 13px; }
+        
+        /* 推薦區域樣式 */
         .table-recommend th { background-color: #3d2a00; border-color: #d29922; color: #e3b341; }
         .table-recommend td { border-color: #d29922; background-color: #1a1405; }
+        
+        /* 文字顏色 */
         .text-up { color: #f85149; font-weight: bold; }
         .text-down { color: #3fb950; font-weight: bold; }
+        
+        /* 免責聲明 */
         .disclaimer { background-color: #1c1111; border: 1px dashed #f85149; color: #f85149; }
-        select { outline: none; transition: border 0.3s; }
-        select:focus { border-color: #22d3ee; }
-        @media (max-width: 768px) { .hide-mobile { display: none; } }
+        
+        /* 自訂滾動條 (手機美化) */
+        .overflow-x-auto::-webkit-scrollbar { height: 4px; }
+        .overflow-x-auto::-webkit-scrollbar-thumb { background: #30363d; border-radius: 10px; }
+
+        /* 手機專屬隱藏與縮放 */
+        @media (max-width: 640px) {
+            h1 { font-size: 1.25rem !important; }
+            td, th { font-size: 11px !important; padding: 8px 2px !important; }
+            .hide-mobile { display: none !important; }
+            .container-padding { padding: 0.75rem !important; }
+        }
     </style>
 </head>
-<body class="p-2 md:p-6">
+<body class="container-padding p-2 md:p-6">
 
-    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-        <div>
-            <h1 class="text-2xl font-bold text-white">IKE 盤中監控 <span class="text-sm text-cyan-400">AI 研究版</span></h1>
-            <div class="flex gap-4 mt-1 text-[11px] text-gray-500">
-                <span id="busuanzi_container_site_pv" style="display:none">今日點閱：<span id="busuanzi_value_site_pv" class="text-cyan-500 font-bold">--</span></span>
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3">
+        <div class="w-full md:w-auto">
+            <h1 class="text-2xl font-bold text-white flex items-center gap-2">
+                IKE 盤中監控 <span class="bg-cyan-900 text-cyan-400 text-[10px] px-1.5 py-0.5 rounded border border-cyan-700">AI 研究版</span>
+            </h1>
+            <div class="flex gap-4 mt-1 text-[10px] text-gray-500">
+                <span id="busuanzi_container_site_pv" style="display:none">點閱：<span id="busuanzi_value_site_pv" class="text-cyan-500 font-bold">--</span></span>
                 <span id="busuanzi_container_site_uv" style="display:none">訪客：<span id="busuanzi_value_site_uv" class="text-green-500 font-bold">--</span></span>
             </div>
         </div>
-        <div class="flex flex-col items-end gap-2">
-            <span class="text-[10px] text-gray-400" id="update-time">最後更新：讀取中...</span>
-            
-            <div class="flex gap-2">
-                <div class="flex items-center">
-                    <span class="text-[11px] text-gray-500 mr-1">歷史回溯:</span>
-                    <select id="history-select" onchange="changeHistory(this.value)" class="bg-[#0d1117] border border-cyan-800 text-cyan-400 text-xs p-1 rounded">
+        
+        <div class="w-full md:w-auto flex flex-wrap items-center justify-between md:justify-end gap-2">
+            <div class="flex flex-col items-start md:items-end w-full md:w-auto">
+                <span class="text-[10px] text-gray-500 mb-1" id="update-time">最後更新：讀取中...</span>
+                <div class="flex gap-2 w-full">
+                    <select id="history-select" onchange="changeHistory(this.value)" class="flex-1 md:flex-none bg-[#0d1117] border border-cyan-800 text-cyan-400 text-xs p-1.5 rounded appearance-none text-center">
                         <option value="0">載入中...</option>
                     </select>
+                    <select id="quick-sort" onchange="applyQuickSort(this.value)" class="flex-1 md:flex-none bg-[#161b22] border border-gray-700 text-gray-300 text-xs p-1.5 rounded appearance-none text-center">
+                        <option value="觀察點日期-desc">預設排序</option>
+                        <option value="成交量-desc">量大➔小</option>
+                        <option value="漲跌幅百分比-desc">漲幅➔跌</option>
+                    </select>
                 </div>
-
-                <select id="quick-sort" onchange="applyQuickSort(this.value)" class="bg-[#161b22] border border-gray-700 text-xs p-1 rounded">
-                    <option value="觀察點日期-desc">預設 (期間+量能)</option>
-                    <option value="成交量-desc">成交量 (大➔小)</option>
-                    <option value="漲跌幅百分比-desc">漲跌幅 (高➔低)</option>
-                </select>
             </div>
         </div>
     </div>
 
-    <div class="disclaimer p-3 mb-6 rounded text-xs leading-relaxed">
-        <strong>⚠️ 免責聲明：</strong>本系統開發者並非持牌證券投資顧問分析師。所有數據、標的、AI 排序結果僅作為 IKE_TOOL 研究與技術討論參考，不構成任何投資建議。投資人應獨立判斷並自負盈虧。
+    <div class="disclaimer p-3 mb-4 rounded text-[11px] leading-relaxed shadow-lg">
+        <strong>⚠️ 免責聲明：</strong>所有數據僅供技術討論參考，不構成投資建議，投資人應自負盈虧。
     </div>
 
-    <div id="recommendation-section" class="mb-10 hidden overflow-x-auto">
-        <h2 class="text-lg font-bold text-yellow-500 mb-2">🌟 當日印象派推薦</h2>
-        <table class="table-recommend">
-            <thead>
-                <tr>
-                    <th style="width:70px" onclick="sortData('代碼', 'rec')">代碼</th>
-                    <th style="width:90px" onclick="sortData('名稱', 'rec')">名稱</th>
-                    <th style="width:80px" onclick="sortData('期間', 'rec')">期間</th>
-                    <th onclick="sortData('最新價格', 'rec')">現價</th>
-                    <th onclick="sortData('漲跌幅百分比', 'rec')">漲跌幅</th>
-                    <th onclick="sortData('成交量', 'rec')">成交量</th>
-                    <th class="hide-mobile">狀態</th>
-                </tr>
-            </thead>
-            <tbody id="recommend-body"></tbody>
-        </table>
+    <div id="recommendation-section" class="mb-8 hidden overflow-hidden rounded-lg border border-yellow-900/50">
+        <div class="bg-yellow-900/20 px-3 py-2 border-b border-yellow-900/50">
+            <h2 class="text-sm font-bold text-yellow-500">🌟 當日印象派推薦</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="table-recommend">
+                <thead>
+                    <tr>
+                        <th style="width:15%" onclick="sortData('代碼', 'rec')">代碼</th>
+                        <th style="width:20%" onclick="sortData('名稱', 'rec')">名稱</th>
+                        <th style="width:18%" onclick="sortData('期間', 'rec')">期間</th>
+                        <th onclick="sortData('最新價格', 'rec')">現價</th>
+                        <th onclick="sortData('漲跌幅百分比', 'rec')">漲跌</th>
+                        <th onclick="sortData('成交量', 'rec')">量(張)</th>
+                        <th class="hide-mobile" style="width:15%">狀態</th>
+                    </tr>
+                </thead>
+                <tbody id="recommend-body"></tbody>
+            </table>
+        </div>
     </div>
 
-    <h2 class="text-lg font-bold text-cyan-400 mb-2">📊 監控雷達</h2>
-    <div class="overflow-x-auto">
-        <table id="main-table">
-            <thead>
-                <tr>
-                    <th style="width:70px" onclick="sortData('代碼', 'main')">代碼</th>
-                    <th style="width:90px" onclick="sortData('名稱', 'main')">名稱</th>
-                    <th style="width:100px" onclick="sortData('觀察點日期', 'main')">上升觀察日</th>
-                    <th onclick="sortData('最新價格', 'main')">現價</th>
-                    <th onclick="sortData('漲跌幅百分比', 'main')">漲跌幅</th>
-                    <th onclick="sortData('成交量', 'main')">成交量</th>
-                    <th class="hide-mobile">狀態</th>
-                </tr>
-            </thead>
-            <tbody id="table-body"></tbody>
-        </table>
+    <div class="rounded-lg border border-gray-800 overflow-hidden">
+        <div class="bg-gray-800/30 px-3 py-2 border-b border-gray-800">
+            <h2 class="text-sm font-bold text-cyan-400">📊 監控雷達</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table id="main-table">
+                <thead>
+                    <tr>
+                        <th style="width:15%" onclick="sortData('代碼', 'main')">代碼</th>
+                        <th style="width:20%" onclick="sortData('名稱', 'main')">名稱</th>
+                        <th style="width:22%" onclick="sortData('觀察點日期', 'main')">觀察日</th>
+                        <th onclick="sortData('最新價格', 'main')">現價</th>
+                        <th onclick="sortData('漲跌幅百分比', 'main')">漲跌</th>
+                        <th onclick="sortData('成交量', 'main')">量(張)</th>
+                        <th class="hide-mobile" style="width:15%">狀態</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body"></tbody>
+            </table>
+        </div>
     </div>
 
-    <footer class="mt-12 mb-8 text-[11px] text-gray-600 border-t border-gray-800 pt-4">
-        <p>※ IKE_TOOL 系統說明：本頁面之「期間權重排序」依據當日、1日、2日進行優先排列，並輔以成交量降序技術。</p>
-        <p class="mt-2">【投資風險警語】股市交易具備高風險，本系統顯示之「狀態」與「起漲」訊號為 AI 根據歷史數據回測結果，不保證未來獲利。投資前請諮詢合格投資顧問，切勿盲目跟單。</p>
+    <footer class="mt-8 mb-6 text-[10px] text-gray-600 border-t border-gray-800 pt-4 leading-relaxed">
+        <p>※ 排序說明：優先權重「當日 > 1日 > 2日」，輔以成交量降序。</p>
+        <p class="mt-1 font-bold">【投資風險】股市有風險，AI 訊號不保證獲利，請諮詢專業顧問。</p>
     </footer>
 
     <script>
@@ -103,9 +128,8 @@
 
         async function loadData() {
             try {
-                // 🌟 修正點：路徑改回 ./data.json
                 const res = await fetch(`./data.json?t=${new Date().getTime()}`);
-                if (!res.ok) throw new Error("找不到資料檔");
+                if (!res.ok) throw new Error("讀取失敗");
                 const json = await res.json();
                 
                 if (json.history && json.history.length > 0) {
@@ -116,8 +140,8 @@
                     fullHistory.forEach((record, index) => {
                         const opt = document.createElement('option');
                         opt.value = index;
-                        const shortDate = record.date.substring(5);
-                        opt.textContent = `${shortDate} ${record.time}`;
+                        const shortDate = record.date ? record.date.substring(5) : "??-??";
+                        opt.textContent = `${shortDate} ${record.time || ""}`;
                         select.appendChild(opt);
                     });
                     displayRecord(0);
@@ -125,14 +149,11 @@
                     document.getElementById('update-time').innerText = "暫無歷史數據";
                 }
             } catch (e) { 
-                console.error("資料載入失敗:", e); 
-                document.getElementById('update-time').innerText = "資料載入失敗 (404)";
+                document.getElementById('update-time').innerText = "載入失敗(404)";
             }
         }
 
-        function changeHistory(index) {
-            displayRecord(parseInt(index));
-        }
+        function changeHistory(index) { displayRecord(parseInt(index)); }
 
         function displayRecord(index) {
             const record = fullHistory[index];
@@ -146,11 +167,7 @@
             executeSort('main', '觀察點日期', 'desc');
 
             const recSection = document.getElementById('recommendation-section');
-            if(recommendData.length > 0) {
-                recSection.classList.remove('hidden');
-            } else {
-                recSection.classList.add('hidden');
-            }
+            recommendData.length > 0 ? recSection.classList.remove('hidden') : recSection.classList.add('hidden');
         }
 
         function sortData(col, type) {
@@ -176,9 +193,7 @@
                     const wA = weights[valA] || (isNaN(Date.parse(valA)) ? 99 : new Date(valA).getTime());
                     const wB = weights[valB] || (isNaN(Date.parse(valB)) ? 99 : new Date(valB).getTime());
                     if (wA !== wB) return dir === 'asc' ? wA - wB : wB - wA;
-                    const vA = parseFloat(String(a.成交量 || 0).replace(/,/g, '')) || 0;
-                    const vB = parseFloat(String(b.成交量 || 0).replace(/,/g, '')) || 0;
-                    return vB - vA;
+                    return (parseFloat(String(b.成交量 || 0).replace(/,/g, '')) || 0) - (parseFloat(String(a.成交量 || 0).replace(/,/g, '')) || 0);
                 }
                 let numA = parseFloat(String(valA || 0).replace(/[%,]/g, '')) || 0;
                 let numB = parseFloat(String(valB || 0).replace(/[%,]/g, '')) || 0;
@@ -190,7 +205,7 @@
         function renderTable(targetId, list, type) {
             const tbody = document.getElementById(targetId);
             if (!list || list.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-gray-600 italic">此時段無符合條件標的</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-gray-600 italic">無標的</td></tr>`;
                 return;
             }
             tbody.innerHTML = list.map((item, i) => {
@@ -198,21 +213,21 @@
                 const pct = item.漲跌幅百分比 || item.漲跌幅 || "0%";
                 const vol = item.成交量 ? String(item.成交量).replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "--";
                 return `
-                    <tr class="hover:bg-gray-800 cursor-pointer border-b border-gray-800/50" onclick="document.getElementById('${detailId}').classList.toggle('hidden')">
-                        <td class="text-blue-400 font-mono text-xs">${item.代碼}</td>
-                        <td class="text-blue-200 font-bold text-xs">${item.名稱}</td>
-                        <td class="text-gray-400 text-xs">${item.期間 || item.觀察點日期 || '--'}</td>
+                    <tr class="hover:bg-gray-800 active:bg-gray-700 border-b border-gray-800/50" onclick="document.getElementById('${detailId}').classList.toggle('hidden')">
+                        <td class="text-blue-400 font-mono">${item.代碼}</td>
+                        <td class="text-blue-200 font-bold">${item.名稱}</td>
+                        <td class="text-gray-400">${(item.期間 || item.觀察點日期 || '--').replace('2026-', '')}</td>
                         <td class="text-yellow-500 font-mono">${item.最新價格 || item.現價}</td>
                         <td class="${parseFloat(pct) > 0 ? 'text-up' : (parseFloat(pct) < 0 ? 'text-down' : '')}">${pct}</td>
-                        <td class="text-right text-gray-300 font-mono px-2">${vol}</td>
-                        <td class="hide-mobile text-xs ${String(item.布林通道狀態 || item.狀態).includes('起漲') ? 'text-cyan-400 font-bold' : 'text-gray-400'}">${item.布林通道狀態 || item.狀態 || '--'}</td>
+                        <td class="text-right text-gray-300 font-mono px-1">${vol}</td>
+                        <td class="hide-mobile text-[10px] ${String(item.布林通道狀態 || item.狀態).includes('起漲') ? 'text-cyan-400 font-bold' : 'text-gray-400'}">${item.布林通道狀態 || item.狀態 || '--'}</td>
                     </tr>
-                    <tr id="${detailId}" class="hidden bg-[#0d1117] border-l-4 border-cyan-500">
-                        <td colspan="7" class="p-4 text-left text-xs bg-slate-900/50">
-                            <div class="grid grid-cols-2 gap-y-2">
-                                <div><span class="text-gray-500">成交張數:</span> ${vol}</div>
+                    <tr id="${detailId}" class="hidden bg-[#0d1117]">
+                        <td colspan="7" class="p-3 text-left text-[11px] bg-slate-900/80 border-l-2 border-cyan-500">
+                            <div class="flex flex-wrap gap-x-4 gap-y-1">
+                                <div><span class="text-gray-500">成交量:</span> ${vol} 張</div>
                                 <div><span class="text-gray-500">狀態:</span> ${item.布林通道狀態 || item.狀態 || '--'}</div>
-                                <div class="col-span-2 text-gray-400 italic">※ AI 數據分析僅供參考</div>
+                                <div class="w-full text-gray-500 italic mt-1 border-t border-gray-800 pt-1">💡 點擊代碼可開啟券商 App (需自行串接)</div>
                             </div>
                         </td>
                     </tr>
