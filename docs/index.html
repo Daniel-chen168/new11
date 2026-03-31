@@ -9,37 +9,30 @@
     <style>
         body { background-color: #0d1117; color: #c9d1d9; font-family: "微軟正黑體", -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
         
-        /* 🌟 Line 瀏覽器相容性核心優化 */
-        .table-container {
-            width: 100%;
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-        }
+        .table-container { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
-        table { 
-            border-collapse: collapse; 
-            width: 100%; 
-            min-width: 320px; 
-            table-layout: auto; /* 讓內容自動撐開，避免 Line 縮死寬度 */
-        }
+        table { border-collapse: collapse; width: 100%; min-width: 320px; table-layout: auto; }
 
         th, td { 
             padding: 8px 2px !important; 
             border: 1px solid #30363d; 
             text-align: center; 
             font-size: 13px;
-            white-space: nowrap; /* 防止數字折行 */
+            white-space: nowrap; 
         }
 
-        /* 強制分配欄位權重，防止 Line 渲染擠壓 */
-        th:nth-child(1), td:nth-child(1) { width: 14%; } /* 代碼 */
-        th:nth-child(2), td:nth-child(2) { width: 18%; } /* 名稱 */
-        th:nth-child(3), td:nth-child(3) { width: 16%; } /* 期間/日期 */
-        th:nth-child(4), td:nth-child(4) { width: 16%; } /* 現價 */
-        th:nth-child(5), td:nth-child(5) { width: 16%; } /* 漲跌 */
-        th:nth-child(6), td:nth-child(6) { width: 20%; } /* 量 */
+        /* 欄位寬度權重控制 */
+        th:nth-child(1), td:nth-child(1) { width: 14%; }
+        th:nth-child(2), td:nth-child(2) { width: 18%; }
+        th:nth-child(3), td:nth-child(3) { width: 16%; }
+        th:nth-child(4), td:nth-child(4) { width: 16%; }
+        th:nth-child(5), td:nth-child(5) { width: 16%; }
+        th:nth-child(6), td:nth-child(6) { width: 20%; }
 
-        /* 推薦區域樣式 */
+        /* 連結樣式 */
+        .stock-link { color: #58a6ff; text-decoration: underline; text-underline-offset: 3px; font-weight: bold; }
+        .stock-link:active { color: #1f6feb; }
+
         .table-recommend th { background-color: #3d2a00; border-color: #d29922; color: #e3b341; }
         .table-recommend td { border-color: #d29922; background-color: #1a1405; }
         
@@ -47,14 +40,9 @@
         .text-down { color: #3fb950; font-weight: bold; }
         .disclaimer { background-color: #1c1111; border: 1px dashed #f85149; color: #f85149; }
 
-        /* 手機版微調 */
         @media (max-width: 640px) {
             h1 { font-size: 1.15rem !important; }
-            td, th { 
-                font-size: 11px !important; 
-                padding: 10px 1px !important; 
-                letter-spacing: -0.3px; /* 縮小字距以容納數字 */
-            }
+            td, th { font-size: 11px !important; padding: 10px 1px !important; letter-spacing: -0.3px; }
             .hide-mobile { display: none !important; }
             .container-padding { padding: 0.5rem !important; }
         }
@@ -140,7 +128,7 @@
 
     <footer class="mt-8 mb-6 text-[10px] text-gray-600 border-t border-gray-800 pt-4 leading-relaxed">
         <p>※ 排序說明：優先權重「當日 > 1日 > 2日」，輔以成交量降序。</p>
-        <p class="mt-1">【投資風險】股市有風險，AI 訊號不保證獲利，請諮詢專業顧問。</p>
+        <p class="mt-1 font-bold italic">💡 點擊「股票代碼」可開啟 HiStock 線型圖</p>
     </footer>
 
     <script>
@@ -158,7 +146,6 @@
                     fullHistory = json.history;
                     const select = document.getElementById('history-select');
                     select.innerHTML = ''; 
-                    
                     fullHistory.forEach((record, index) => {
                         const opt = document.createElement('option');
                         opt.value = index;
@@ -180,14 +167,11 @@
         function displayRecord(index) {
             const record = fullHistory[index];
             if (!record) return;
-
             document.getElementById('update-time').innerText = `紀錄時間：${record.date} ${record.time}`;
             primaryData = record.primary_list || [];
             recommendData = record.secondary_list || [];
-
             executeSort('rec', '期間', 'asc');
             executeSort('main', '觀察點日期', 'desc');
-
             const recSection = document.getElementById('recommendation-section');
             recommendData.length > 0 ? recSection.classList.remove('hidden') : recSection.classList.add('hidden');
         }
@@ -208,7 +192,6 @@
             let targetList = type === 'main' ? primaryData : recommendData;
             const weights = { "當日": 1, "1日": 2, "2日": 3 };
             let sortedList = [...targetList];
-
             sortedList.sort((a, b) => {
                 let valA = a[col], valB = b[col];
                 if (col === '期間' || col === '觀察點日期') {
@@ -236,7 +219,11 @@
                 const vol = item.成交量 ? String(item.成交量).replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "--";
                 return `
                     <tr class="hover:bg-gray-800 active:bg-gray-700 border-b border-gray-800/50" onclick="document.getElementById('${detailId}').classList.toggle('hidden')">
-                        <td class="text-blue-400 font-mono">${item.代碼}</td>
+                        <td class="font-mono">
+                            <a href="https://histock.tw/stock/${item.代碼}" target="_blank" class="stock-link" onclick="event.stopPropagation();">
+                                ${item.代碼}
+                            </a>
+                        </td>
                         <td class="text-blue-200 font-bold">${item.名稱}</td>
                         <td class="text-gray-400">${(item.期間 || item.觀察點日期 || '--').replace('2026-', '')}</td>
                         <td class="text-yellow-500 font-mono">${item.最新價格 || item.現價}</td>
